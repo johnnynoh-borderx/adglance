@@ -1,0 +1,15 @@
+[project]
+name = "adglance"
+version = "0.1.0"
+description = "Every ad's spend at a glance, in the terminal: TikTok and Meta, read-only."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = ["textual>=8.2", "rich>=13", "requests>=2.31"]
+
+[project.scripts]
+adglance = "adglance.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

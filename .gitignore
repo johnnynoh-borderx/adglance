@@ -1,0 +1,26 @@
+# secrets: never tracked
+.env
+.env.*
+*.env
+accounts.json
+secrets.*
+*.pem
+*.key
+token*.txt
+
+# a user's own config, state and cache (they live in ~/.config and ~/.cache, but just in case)
+settings.json
+state.json
+*.sqlite
+*.sqlite-journal
+*.log
+
+# build and tools
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+.DS_Store
+.claude/

@@ -1,0 +1,31 @@
+// An advanced adglance settings file, for names built from pieces that a
+// separator alone cannot read. Most accounts need none of this: names show as
+// they are. Paste what you want into an account's own file (`,` on the screen).
+//
+// Campaign  ACME_US_VV_September2026Winner  ->  US · VV · 2026-09 · Winner
+//           ACME_US_VV_SummerLaunch         ->  US · VV · SummerLaunch (a project: no month)
+// Ad        VID_9x16_SpringTeaser           ->  Spring Teaser
+{
+  "names": {
+    "patterns": {
+      "campaign": [
+        // a month's flight, then what follows it as its stage (Winner, or nothing: Base)
+        "^[^_]+_(?P<geo>[^_]+)_(?P<objective>[^_]+)_(?P<Month>January|February|March|April|May|June|July|August|September|October|November|December)(?P<Year>\\d{4})(?P<stage>[A-Za-z]*)$",
+        // a project: its whole detail is its flight
+        "^[^_]+_(?P<geo>[^_]+)_(?P<objective>[^_]+)_(?P<flight>[^_]+)$"
+      ],
+      "ad": ["(?:^|_)(?P<content>[^_]+)$"]
+    },
+    "defaults": {"stage": "Base"},
+    "months": ["Month"],
+    "make": {"flight": "{Year}-{Month}"},
+    "spaced": ["content"],
+    "columns": ["geo", "objective", "flight", "stage", "content", "status"],
+    "labels": {"geo": "Geo", "objective": "Obj", "flight": "Flight", "stage": "Stage", "content": "Content"}
+  },
+  "pin": ["geo", "objective", "content"],
+  "show": ["billed", "share", "cpm", "cpv", "cpv6", "cpf"],
+  "targets": ["objective=VV cpv6 <= 20", "objective=ENG cpf <= 1700"],
+  "colors": {"US": "blue", "CA": "flamingo", "VV": "peach", "ENG": "sky"},
+  "highlight": ["Winner"]
+}
