@@ -7,8 +7,8 @@ it in $EDITOR and closing the editor reloads it; `adglance +show-config --defaul
 `adglance +validate-config` checks it. A mistake never stops adglance: that one
 option keeps its default and a strip on top of the screen says why.
 
-Lines starting with // are comments. Accounts, tokens and fees are not here:
-they are accounts.json (adglance setup).
+Lines starting with // are comments. Accounts and tokens are not here: they
+are accounts.json (adglance setup).
 
 Nothing has to be written to start: the defaults work for any account. Options
 for one account go in its own file, accounts/<platform>-<id>.json -- `,` on the
@@ -50,6 +50,11 @@ METRICS = {
 
 # (key, default, what it does) -- in the order +show-config prints them
 OPTIONS = [
+    ("fee", 1.0,
+     "A multiplier on spend for every cost: billed = spend x fee, and the cost\n"
+     "metrics are formulas over billed. 1.15 adds an agency fee of 15%; 1 is the\n"
+     "spend as the platform reports it. A formula that wants the raw spend uses\n"
+     "spend. e.g. 1.15"),
     ("show", ["billed", "share", "impressions", "cpm", "cpv", "ctr"],
      "The number columns shown, left to right: ids from metrics. Every metric can\n"
      "still be shown from the screen (H); this is only where it starts."),
@@ -97,7 +102,7 @@ OPTIONS = [
     ("metrics", METRICS,
      "Number columns: a formula over the counts, and a format. Yours are added to\n"
      "these by id (the same id replaces one).\n"
-     "  counts  spend  billed (spend x the account's fee)  impressions  clicks\n"
+     "  counts  spend  billed (spend x fee)  impressions  clicks\n"
      "          views (plays)  views_2s  views_6s  views_25  views_50  views_75\n"
      "          views_100  watch_time (seconds)  likes  comments  shares  follows\n"
      "          profile_visits  engagements\n"
@@ -110,7 +115,7 @@ DEFAULTS = {key: value for key, value, _ in OPTIONS}
 NAME_KEYS = {"split", "campaign", "ad", "labels", "columns", "patterns", "defaults", "months",
              "make", "spaced"}
 KINDS = {list: "a list [...]", dict: "an object {...}", str: "text", bool: "true or false",
-         int: "a whole number"}
+         int: "a whole number", float: "a number"}
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -153,6 +158,8 @@ def read(path=None):
 def _same_kind(value, default):
     if isinstance(default, bool):
         return isinstance(value, bool)
+    if isinstance(default, float):                    # fee: 1 or 1.15
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
     if isinstance(default, int):
         return isinstance(value, int) and not isinstance(value, bool)
     return isinstance(value, type(default))
@@ -237,11 +244,13 @@ def load(platform=None, account_id=None):
     if platform and account_id:
         path = account_path(platform, account_id)
         layers.append((f"accounts/{path.name}", path))
-    names_from = "settings.json"
+    names_from = fee_from = "settings.json"
     for where, path in layers:
         mine, found = read(path)
         if "names" in mine:
             names_from = where
+        if "fee" in mine:
+            fee_from = where
         problems += [f"{where}: {p}" for p in found]
         own = []
         _apply(cfg, mine, own)
@@ -251,6 +260,10 @@ def load(platform=None, account_id=None):
     problems += [f"{names_from}: {p}" for p in named]
     if cfg["pin"] is None:
         cfg["pin"] = [c for c in cfg["names"]["default"]["columns"] if c != "status"]
+    if not 0 < cfg["fee"] < 10:
+        problems.append(f"{fee_from}: fee: {cfg['fee']} -- a multiplier above 0 and under 10 "
+                        "(1.15 adds 15%); using 1")
+        cfg["fee"] = 1.0
     return cfg, problems
 
 
@@ -298,7 +311,8 @@ def ensure(platform=None, account_id=None, title=""):
         path.parent.mkdir(parents=True, exist_ok=True)
         head = (f"// {title}: options here apply to this account only, over the defaults\n  "
                 if platform else "// options here apply to every account\n  ")
-        path.write_text("{\n  " + head + "// every option: adglance +show-config --default --docs\n}\n")
+        path.write_text("{\n  " + head + "// e.g. \"fee\": 1.15 -- every cost on spend x 1.15 (an agency fee)\n"
+                        "  // every option: adglance +show-config --default --docs\n}\n")
     return path
 
 

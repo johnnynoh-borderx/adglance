@@ -236,6 +236,7 @@ class Layout:
             else:
                 self.problems.append(f"colors.{value}: {hue!r} -- use one of {', '.join(HUES)}")
         self.targets = self._targets(cfg.get("targets", []))
+        self.fee = float(cfg.get("fee", 1))           # billed = spend x fee, for every cost
         HIGHLIGHT.clear()
         highlight = cfg.get("highlight", [])
         HIGHLIGHT.update(str(v) for v in (highlight if isinstance(highlight, list) else []))

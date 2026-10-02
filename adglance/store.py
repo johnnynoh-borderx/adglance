@@ -134,12 +134,12 @@ class Store:
                                         (start, end)).fetchone()
         return oldest if n == len(list(days(start, end, self.zone))) else None
 
-    def rows(self, start, end, daily=False):
+    def rows(self, start, end, daily=False, fee=1.0):
         """The counts of start..end per ad (daily: per ad per day), with each
         ad's latest names -- the records style.prepare takes."""
-        # billed is spend x the fee as it is now, not as stored: a fee change
-        # never leaves old days on the old fee
-        fee = float(self.account.get("fee", 1.0))
+        # billed is spend x the fee (settings) as it is now, not as stored: a
+        # fee change never leaves old days on the old fee
+        fee = float(fee)
         sums = ", ".join(f"sum(spend) * {fee!r} AS billed" if p == "billed" else f"sum({p}) AS {p}"
                          for p in PARTS)
         day = ", daily.day AS day" if daily else ""

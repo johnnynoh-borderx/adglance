@@ -1,7 +1,7 @@
 """adglance -- every ad's spend at a glance, in the terminal. Read-only.
 
     adglance                  the screen, on the last period you looked at
-    adglance setup            add, check and edit ad accounts (key, label, fee)
+    adglance setup            add, check and edit ad accounts (key, label)
     adglance +show-config --default --docs   every option, with what it does
     adglance +validate-config                check settings.json
     adglance yesterday | mtd | 14d     yesterday, this month, the last N days
@@ -13,7 +13,7 @@
     adglance mtd --sort cpv6  by a column; -cpv6 for largest first
     adglance 7d --group Geo   merge rows by name columns
 
-Accounts, tokens and fees: ~/.config/adglance/accounts.json (600), written by
+Accounts and tokens: ~/.config/adglance/accounts.json (600), written by
 `adglance setup`. Everything else -- name columns, metrics, targets, colours --
 is ~/.config/adglance/settings.json, empty until you change something (`,` on
 the screen opens it in $EDITOR).
@@ -203,7 +203,7 @@ def table(words, console, layout, src, search="", sort=None, by=(), daily=False,
         except PlatformError as e:
             Console(stderr=True).print(f"[yellow]!! statuses: {e}[/]")
             statuses = {}
-    recs = [r for r in prepare(store.rows(start, end, daily), layout, statuses)
+    recs = [r for r in prepare(store.rows(start, end, daily, layout.fee), layout, statuses)
             if matches(r, search)]
     # every derive on a copy: a record's counts are never written over
     total = derive(combine(recs, label="TOTAL"), layout.metrics)

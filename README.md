@@ -12,8 +12,8 @@ adglance setup      # add, check and edit accounts later (or A on the screen: + 
   daily breakdown after that is a local sum.
 - **Real totals.** A group or total sums the counts first, then applies the
   formula, so its CPV is the real one, never an average of averages.
-- **Nothing to set up but a key.** Onboarding asks for the token, the
-  account id and the fee; names show as they are. Everything else is optional.
+- **Nothing to set up but a key.** Onboarding asks for the token and the
+  account id; names show as they are. Everything else is an option.
 - **Keyboard first.** Arrow keys move a cell cursor, Enter opens a group or an
   ad, Esc goes back, `/` filters, `s` sorts, `G` groups, `d` goes daily, `?`
   lists every key.
@@ -27,13 +27,10 @@ part set up interactively, because a key has to be checked against the platform.
 ```json
 {"accounts": [
   {"platform": "tiktok", "id": "7000000000000000001", "label": "Brand US",
-   "token": "…", "fee": 1.15, "currency": "KRW", "timezone": "Asia/Seoul"},
-  {"platform": "meta", "id": "act_1234567890", "label": "Brand CA",
-   "token": "…", "fee": 1.15}
+   "token": "…", "currency": "KRW", "timezone": "Asia/Seoul"},
+  {"platform": "meta", "id": "act_1234567890", "label": "Brand CA", "token": "…"}
 ]}
 ```
-
-`fee`: billed = spend × fee (an agency fee, a tax). 1 when left out.
 
 Tokens: TikTok, a Marketing API app's long-term access token with reporting
 read scope. Meta, a system user token with `ads_read`.
@@ -52,10 +49,13 @@ adglance +validate-config                  check it
 A mistake never stops adglance: that option keeps its default and a strip on
 top says why. Lines starting with `//` are comments.
 
-Split names built from pieces into columns, and judge rows against targets:
+Add a fee to every cost (billed = spend × fee; the cost metrics are formulas
+over billed), split names built from pieces into columns, and judge rows
+against targets:
 
 ```json
 {
+  "fee": 1.15,
   "names": {"split": "_", "campaign": ["brand", "geo", "objective", "flight"],
             "labels": {"objective": "Obj"}},
   "targets": ["Obj=VV cpv6 <= 20"],
@@ -77,7 +77,7 @@ nothing to link: where the file is says what it covers.
 
 ```
 ~/.config/adglance/
-  accounts.json                         keys and fees (adglance setup)
+  accounts.json                         keys (adglance setup)
   accounts/tiktok-7000000000000000001.json   this account's options
   accounts/meta-act_1234567890.json          that one's
   settings.json                         optional: options for every account

@@ -1,4 +1,4 @@
-"""adglance setup: add an ad account, check it, set its label and fee.
+"""adglance setup: add an ad account, check it, set its label.
 
 The first run opens straight on the key form; `adglance setup` opens on the
 list of accounts. Everything is written to accounts.json (accounts.py), mode
@@ -6,7 +6,7 @@ list of accounts. Everything is written to accounts.json (accounts.py), mode
 call before it is kept; nothing is sent anywhere but the platform it is for.
 
     key form      platform, token, account id  ->  check  ->  account form
-    account form  label, fee                   ->  save   ->  the numbers (or the list)
+    account form  label                        ->  save   ->  the numbers (or the list)
     list          n new  ·  enter edit  ·  x remove  ·  esc done
 
 The key and account forms also open over the numbers, from the account
@@ -53,14 +53,6 @@ def clean(token):
 def seen(token):
     """What was received, without showing it: length and its ends."""
     return f"(read {len(token)} characters: {token[:4]}…{token[-4:]})" if len(token) > 12 else ""
-
-
-def parse_fee(text):
-    try:
-        fee = float(text.strip() or 1)
-    except ValueError:
-        return None
-    return fee if 0 < fee < 10 else None
 
 
 class Form(Screen):
@@ -150,7 +142,7 @@ class KeyScreen(Form):
                                       Text(f"✗ {e}\n{seen(token)}", style=RED))
             return
         acc = {"platform": platform, "id": info["id"], "token": token, "label": info["name"],
-               "currency": info["currency"], "timezone": info["timezone"], "fee": 1.0}
+               "currency": info["currency"], "timezone": info["timezone"]}
         if any(a["platform"] == platform and a["id"] == acc["id"] for a in self.app.accounts):
             self.app.call_from_thread(self.query_one("#result", Static).update,
                                       Text("That account is already set up: edit it from the list.",
@@ -177,7 +169,8 @@ class WelcomeScreen(KeyScreen):
 
 
 class AccountScreen(Form):
-    """One account's settings: label and fee. Saved to accounts.json."""
+    """One account's label (and a new token). Saved to accounts.json. A fee,
+    like every other option, is the account's own file (`,` on the screen)."""
     BINDINGS = [Binding("escape", "back", "Back")]
 
     def __init__(self, acc, new=False, first=False, inside=False):
@@ -193,8 +186,8 @@ class AccountScreen(Form):
                                         f"{a.get('timezone') or '?'}", SUBTEXT)))
             yield Static("Label: what the account picker shows", classes="f-label")
             yield Input(a.get("label", ""), id="label")
-            yield Static("Fee: billed = spend × fee  (1.15 adds 15%; 1 for none)", classes="f-label")
-            yield Input(f"{a.get('fee', 1.0):g}", id="fee")
+            yield Static("A fee, name columns, targets: options in this account's own file -- "
+                         ", on the numbers opens it.", classes="f-hint")
             if not self.new:
                 yield Static("Access token: blank keeps the one saved", classes="f-label")
                 yield Input(password=True, placeholder="•••• kept", id="token")
@@ -207,7 +200,7 @@ class AccountScreen(Form):
 
     def on_mount(self):
         super().on_mount()
-        self.query_one("#fee" if self.new else "#label").focus()
+        self.query_one("#label").focus()
 
     def on_input_submitted(self, event):
         self.action_save()
@@ -222,11 +215,8 @@ class AccountScreen(Form):
         self.query_one("#result", Static).update(Text(text, style=RED))
 
     def action_save(self):
-        fee = parse_fee(self.query_one("#fee", Input).value)
-        if fee is None:
-            return self._fail("Fee: a number above 0 and under 10 (1.15, or 1 for none).")
-        self.acc.update(label=self.query_one("#label", Input).value.strip() or self.acc["id"],
-                        fee=fee)
+        self.acc.update(label=self.query_one("#label", Input).value.strip() or self.acc["id"])
+        self.acc.pop("fee", None)
         self.acc.pop("profile", None)                 # options are the account's own file now
         token = "" if self.new else clean(self.query_one("#token", Input).value)
         if token:
@@ -304,7 +294,7 @@ class ListScreen(Form):
             module = PLATFORMS.get(a["platform"])
             line = Text.assemble((f"{module.TITLE if module else a['platform']:<7}", MAUVE),
                                  (f"{a.get('label', a['id'])}", "bold"),
-                                 (f"   {a['id']}  ·  fee ×{a.get('fee', 1):g}"
+                                 (f"   {a['id']}"
                                   , SUBTEXT))
             box.add_option(Option(line, id=str(i)))
         if not self.app.accounts:

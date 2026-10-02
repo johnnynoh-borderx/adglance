@@ -770,7 +770,7 @@ class AdView(App):
         if not self.dates:
             return
         start, end = map(str, self.dates)
-        raw = self.source["store"].rows(start, end, self.daily)
+        raw = self.source["store"].rows(start, end, self.daily, self.layout.fee)
         statuses = self.source["store"].statuses()
         if statuses is None and self.status_failed:
             statuses = {}                             # failed: "–", not a spinner for ever

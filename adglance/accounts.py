@@ -3,15 +3,14 @@
 
     {"accounts": [
       {"platform": "tiktok", "id": "7000000000000000001", "label": "Brand US",
-       "token": "…", "fee": 1.15, "currency": "KRW", "timezone": "Asia/Seoul"},
-      {"platform": "meta", "id": "act_123", "label": "Brand CA", "token": "…", "fee": 1.15}
+       "token": "…", "currency": "KRW", "timezone": "Asia/Seoul"},
+      {"platform": "meta", "id": "act_123", "label": "Brand CA", "token": "…"}
     ]}
 
     platform  tiktok or meta
     id        the ad account (TikTok advertiser id; Meta act_…)
     token     a read-only access token for it
     label     what the account picker shows
-    fee       billed = spend × fee (1 when left out): an agency fee, a tax
     currency, timezone   filled in by setup from the platform itself
 
 What a row is judged against (targets), and everything else about the screen,
@@ -47,11 +46,9 @@ def load():
             problems.append(f"{where}: needs at least platform and id -- skipped")
             continue
         acc = dict(acc)
-        fee = acc.get("fee", 1)
-        if not isinstance(fee, (int, float)) or isinstance(fee, bool) or not 0 < fee < 10:
-            problems.append(f"{where}: fee {fee!r} is not a number between 0 and 10 -- using 1")
-            fee = 1
-        acc["fee"] = float(fee)
+        if "fee" in acc:                             # an option now, like any other
+            problems.append(f"{where}: fee is an option now -- put \"fee\": {acc.pop('fee')} in "
+                            "this account's own file (, on the screen); not used here")
         acc.pop("profile", None)                     # an account's options are its own file now
         if acc.pop("gates", None):
             problems.append(f"{where}: gates are targets in settings.json now -- not used here")
