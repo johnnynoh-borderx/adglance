@@ -30,7 +30,7 @@ def version():
     if (here / ".git").exists():
         try:
             git = ["git", "-C", str(here)]
-            described = subprocess.run([*git, "describe", "--tags", "--always", "--dirty"],
+            described = subprocess.run([*git, "describe", "--tags", "--always", "--dirty", "--abbrev=9"],
                                        capture_output=True, text=True, timeout=2).stdout.strip()
             day = subprocess.run([*git, "log", "-1", "--format=%cs"],
                                  capture_output=True, text=True, timeout=2).stdout.strip()
