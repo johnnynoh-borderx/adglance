@@ -30,6 +30,9 @@ COUNTS = {"impressions": "impressions", "clicks": "clicks", "views": "video_play
           "likes": "likes", "comments": "comments", "shares": "shares", "follows": "follows",
           "profile_visits": "profile_visits", "engagements": "engagements"}
 METRICS = ["campaign_name", "adgroup_name", "ad_name", "spend", "average_video_play", *COUNTS.values()]
+# the counts it reports (all of them), and the columns a TikTok account starts with
+PROVIDES = {"spend", "billed", "watch_time", *COUNTS}
+SHOW = ["billed", "share", "cpm", "cpv", "cpv6", "cpf"]
 # the report allows a daily breakdown over 30 days at most ("max time span is
 # 30 days when use stat_time_day"); the store asks in pieces this long
 MAX_DAYS = 30

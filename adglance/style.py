@@ -179,7 +179,13 @@ class Layout:
         if not isinstance(metrics, dict):
             self.problems.append("[metrics] must be a table of metrics")
             metrics = {}
-        show = cfg.get("show", [])
+        from .platforms import PLATFORMS              # here: the platforms never import this
+        module = PLATFORMS.get(platform)
+        # the counts this platform reports; a metric over any other cannot be picked
+        self.provides = set(getattr(module, "PROVIDES", PARTS))
+        show = cfg.get("show")
+        if show is None:                              # the platform's own set
+            show = list(getattr(module, "SHOW", DEFAULT_SHOW))
         if not isinstance(show, list):
             # a string would be read letter by letter: say so, show the defaults
             self.problems.append(f"show: {show!r} must be a list, e.g. [\"billed\", \"cpm\"] -- "
@@ -223,6 +229,7 @@ class Layout:
                 continue
             self.catalog.append(Column(mid, m.get("name", mid), kind,
                                        None if kind == "share" else formula))
+        self.platform_title = getattr(module, "TITLE", platform)
         # what is drawn: these keys (n:name for a name column, the id for a
         # metric); the screen replaces it with what h / H picked
         self.default_visible = ({f"n:{c}" for c in self.shown_names}
@@ -361,6 +368,12 @@ class Layout:
     def metrics(self):
         """The metric columns drawn, in the catalogue's order."""
         return [c for c in self.catalog if c.key in self.visible]
+
+    def available(self, col):
+        """Whether this platform reports every count the metric is worked out from."""
+        if not col.formula:
+            return True
+        return set(re.findall(r"[a-z_][a-z0-9_]*", col.formula)) <= self.provides
 
     def every_column(self):
         """[(key, label)] of every column there is, names then metrics -- for H."""

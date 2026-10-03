@@ -15,7 +15,12 @@ for one account go in its own file, accounts/<platform>-<id>.json -- `,` on the
 screen opens the one for the account shown -- and override only there. No name
 to give it and nothing to link: where the file is says what it covers.
 
-    the defaults here  ->  settings.json (every account, optional)  ->  accounts/<platform>-<id>.json
+    the defaults here  ->  settings.json (every account, optional)
+                    ->  its "tiktok" / "meta" section (that platform's accounts)
+                    ->  accounts/<platform>-<id>.json (this account)
+
+The screen writes an account's file too -- H, h and shift+arrows for the
+number columns, and a new metric -- keeping the comment lines at its top.
 """
 import copy
 import json
@@ -25,6 +30,7 @@ import re
 
 HOME = pathlib.Path.home() / ".config" / "adglance"
 PATH = HOME / "settings.json"
+PLATFORM_NAMES = ("tiktok", "meta")    # sections of settings.json for one platform's accounts
 ACCOUNTS = HOME / "accounts"
 
 METRICS = {
@@ -55,9 +61,10 @@ OPTIONS = [
      "metrics are formulas over billed. 1.15 adds an agency fee of 15%; 1 is the\n"
      "spend as the platform reports it. A formula that wants the raw spend uses\n"
      "spend. e.g. 1.15"),
-    ("show", ["billed", "share", "impressions", "cpm", "cpv", "ctr"],
-     "The number columns shown, left to right: ids from metrics. Every metric can\n"
-     "still be shown from the screen (H); this is only where it starts."),
+    ("show", None,
+     "The number columns shown, left to right: ids from metrics. null: the\n"
+     "platform's own set (TikTok: views and follows; Meta: clicks and completes).\n"
+     "H on the screen ticks them and writes this for the account shown."),
     ("sort", "-billed",
      "The starting sort: a column id or header; a leading - sorts largest first."),
     ("pin", None,
@@ -252,13 +259,22 @@ def load(platform=None, account_id=None):
         path = account_path(platform, account_id)
         layers.append((f"accounts/{path.name}", path))
     names_from = fee_from = "settings.json"
-    for where, path in layers:
+    files, layers = layers, []
+    for where, path in files:
         mine, found = read(path)
+        problems += [f"{where}: {p}" for p in found]
+        if path == PATH:                            # its platform sections: layers of their own
+            sections = {k: mine.pop(k) for k in PLATFORM_NAMES if k in mine}
+            layers.append((where, mine))
+            if isinstance(sections.get(platform), dict):
+                layers.append((f"settings.json {platform}", sections[platform]))
+        else:
+            layers.append((where, mine))
+    for where, mine in layers:
         if "names" in mine:
             names_from = where
         if "fee" in mine:
             fee_from = where
-        problems += [f"{where}: {p}" for p in found]
         own = []
         _apply(cfg, mine, own)
         problems += [f"{where}: {p}" for p in own]
@@ -289,11 +305,11 @@ def _apply(cfg, mine, problems):
                 cfg["metrics"] = {**cfg["metrics"], **value}
             else:
                 problems.append("metrics: an object of {id: {name, formula, format}}")
-        elif key == "pin":
+        elif key in ("pin", "show"):
             if value is None or isinstance(value, list):
-                cfg["pin"] = value
+                cfg[key] = value
             else:
-                problems.append("pin: a list of name columns, or null")
+                problems.append(f"{key}: a list, or null for the default")
         elif _same_kind(value, default):
             cfg[key] = value
         else:
@@ -340,3 +356,44 @@ def show(default=False, docs=False):
 
 def editor():
     return os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+
+
+def _account_file(platform, account_id):
+    """(the comment lines on top, the options) of an account's own file."""
+    path = account_path(platform, account_id)
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        ensure(platform, account_id)
+        text = path.read_text()
+    head = []
+    for line in text.splitlines():
+        if line.lstrip().startswith("//") or not line.strip():
+            head.append(line)
+        else:
+            break
+    inner = [l.strip() for l in text.splitlines() if l.lstrip().startswith("//")
+             and l not in head]                   # the starter file keeps its comments inside
+    mine = json.loads(_strip_comments(text) or "{}") if text.strip() else {}
+    return path, head + inner, mine
+
+
+def write_option(platform, account_id, key, value):
+    """Set (or, with None, remove) one option in an account's own file. The
+    comment lines are kept, on top; the options are written out in full.
+    Raises ValueError when the file is not JSON (it is left as it is)."""
+    path, comments, mine = _account_file(platform, account_id)
+    if not isinstance(mine, dict):
+        raise ValueError(f"{path.name} is not an object")
+    if value is None:
+        mine.pop(key, None)
+    else:
+        mine[key] = value
+    body = json.dumps(mine, indent=2, ensure_ascii=False)
+    path.write_text("\n".join(comments) + ("\n" if comments else "") + body + "\n")
+    return path
+
+
+def read_option(platform, account_id, key, default=None):
+    path, _, mine = _account_file(platform, account_id)
+    return mine.get(key, default) if isinstance(mine, dict) else default

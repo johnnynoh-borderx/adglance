@@ -61,7 +61,7 @@ from . import settings
 from .actions import ActionScreen
 from .datepicker import CalendarScreen
 from .store import days, freshness, set_zone, today as account_today
-from .style import (ALL, CHEVRONS, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
+from .style import (ALL, CHEVRONS, PARTS, compile_formula, evaluate, number, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
                           header_label, matches, ordered, prepare, with_share)
 
 COMMON = ["today", "yesterday", "mtd", "lm", "7d", "14d", "30d"]
@@ -109,7 +109,7 @@ KEYS = [
                 ("p  /  c", "type a period (2026-10-01, 7d, lm)  /  the calendar")]),
     ("View", [("g  /  G", "grouping off and back on  /  tick the columns to group by"),
               ("d", "Daily: one row a day, or the period summed"),
-              ("h  /  H", "hide the cursor's column  /  every column, show or hide (r: defaults)"),
+              ("h  /  H", "hide the cursor's column  /  every column: search, tick, n a new metric"),
               ("shift + ← →", "move the cursor's column (names among names, metrics among metrics)"),
               ("f  /  F", "pinned columns off and on  /  pick which")]),
     ("Data", [("r  /  R", "refresh the last 30 days  /  every day of this period"),
@@ -275,47 +275,170 @@ class SortScreen(ModalScreen):
 
 
 class ColumnsScreen(ModalScreen):
-    """H: tick the columns to show; r here puts back settings.json's choice."""
+    """H: every column there is, ticked when shown, with a search on top. A
+    tick applies at once; the number columns are written to the account's own
+    file (show). n makes a new metric; r puts back the settings' columns."""
     DEFAULT_CSS = """
     ColumnsScreen { align: center middle; background: #11111b 40%; }
-    ColumnsScreen > Vertical { width: auto; height: auto; max-height: 90%; padding: 1 2;
+    ColumnsScreen > Vertical { width: 64; height: auto; max-height: 90%; padding: 1 2;
                                background: #181825; border: round #cba6f7; }
     ColumnsScreen .title { color: #cba6f7; text-style: bold; margin: 0 0 1 0; }
+    ColumnsScreen #q { margin: 0 0 1 0; }
     ColumnsScreen SelectionList { background: #181825; border: none; height: auto;
-                                  max-height: 24; width: 32; }
+                                  max-height: 22; width: 100%; }
     ColumnsScreen SelectionList:focus { border: none; background-tint: transparent; }
     ColumnsScreen .hint { color: #7f849c; margin: 1 0 0 0; }
     """
     BINDINGS = [("escape", "dismiss", "Close"), ("H", "dismiss", "Close"),
-                Binding("r", "defaults", show=False)]
+                Binding("r", "defaults", show=False), Binding("n", "new", show=False)]
 
-    def __init__(self, columns, visible, defaults, on_change, on_reset):
+    def __init__(self, title, columns, visible, on_change, on_reset, on_new):
+        """columns: [(key, label, what it is, available)]"""
         super().__init__()
-        self.on_reset = on_reset
-        self.choices, self.shown, self.defaults, self.on_change = columns, set(visible), defaults, on_change
+        self.title_text, self.choices, self.shown = title, columns, set(visible)
+        self.on_change, self.on_reset, self.on_new = on_change, on_reset, on_new
 
     def compose(self):
         with Vertical():
-            yield Static("Columns", classes="title")
-            yield SelectionList(*[Selection(label, key, key in self.shown)
-                                  for key, label in self.choices])
-            yield Static("space · enter · click ticks\nr  settings.json's columns and order  ·  esc closes",
+            yield Static(self.title_text, classes="title")
+            yield Input(placeholder="Search columns…  (cpv, click, complete…)", id="q")
+            yield SelectionList()
+            yield Static("↓ to the list  ·  space ticks  ·  n new metric  ·  r the defaults  ·  esc closes",
                          classes="hint")
 
     def on_mount(self):
-        self.query_one(SelectionList).focus()
+        self._fill("")
+        self.query_one("#q").focus()
+
+    def _fill(self, query):
+        words = query.lower().split()
+        box = self.query_one(SelectionList)
+        box.clear_options()
+        for key, label, what, available in self.choices:
+            hay = f"{key} {label} {what}".lower()
+            if words and not all(w in hay for w in words):
+                continue
+            text = Text(f"{label:<16}", style="" if available else "#585b70")
+            text.append(what, style="#6c7086" if available else "#45475a")
+            box.add_option(Selection(text, key, key in self.shown, disabled=not available))
+
+    def on_input_changed(self, event):
+        if event.input.id == "q":
+            self._fill(event.value)
+
+    def _to_list(self):
+        box = self.query_one(SelectionList)
+        box.focus()
+        if box.highlighted is None and box.option_count:
+            box.highlighted = 0                       # space ticks the first match at once
+
+    def on_input_submitted(self, event):
+        self._to_list()
+
+    def on_key(self, event):
+        if event.key == "down" and self.focused is self.query_one("#q"):
+            self._to_list()
+            event.stop()
 
     def on_selection_list_selection_toggled(self, event):
-        picked = list(self.query_one(SelectionList).selected)
-        if picked:
-            self.on_change(picked)
+        key = event.selection.value
+        self.shown ^= {key}
+        if not self.shown:                            # the last column stays
+            self.shown.add(key)
+            self.query_one(SelectionList).select(key)
+            return
+        self.on_change(set(self.shown))
 
     def action_defaults(self):
-        picks = self.query_one(SelectionList)
-        picks.deselect_all()
-        for key in self.defaults:
-            picks.select(key)
-        self.on_reset()                               # shown columns and their order
+        self.dismiss()
+        self.on_reset()
+
+    def action_new(self):
+        self.dismiss()
+        self.on_new()
+
+
+class MetricScreen(ModalScreen):
+    """A new number column: a name, a formula over the counts, a format. The
+    formula is checked as it is typed, and worked out on what is shown now."""
+    DEFAULT_CSS = """
+    MetricScreen { align: center middle; background: #11111b 40%; }
+    MetricScreen > Vertical { width: 70; height: auto; padding: 1 2; background: #181825;
+                              border: round #cba6f7; }
+    MetricScreen .m-title { color: #cba6f7; text-style: bold; }
+    MetricScreen .m-label { color: #a6adc8; margin: 1 0 0 0; }
+    MetricScreen .m-hint { color: #7f849c; }
+    MetricScreen Input { width: 100%; }
+    MetricScreen Select { width: 30; }
+    MetricScreen #preview { margin: 1 0 0 0; height: auto; }
+    """
+    BINDINGS = [("escape", "dismiss", "Close")]
+    FORMATS = [("cost (currency, .1)", "cost"), ("money (currency, whole)", "money"),
+               ("pct (x 100, %)", "pct"), ("number", "number")]
+
+    def __init__(self, total, provides, platform, currency, on_save):
+        super().__init__()
+        self.total, self.provides, self.platform, self.currency = total, provides, platform, currency
+        self.on_save = on_save
+
+    def compose(self):
+        with Vertical():
+            yield Static("New metric", classes="m-title")
+            yield Static("written to this account's own file (, opens it)", classes="m-hint")
+            yield Static("Name", classes="m-label")
+            yield Input(placeholder="3s CPV", id="name")
+            yield Static("Formula: counts, numbers, + - * / and brackets", classes="m-label")
+            yield Input(placeholder="billed / views_2s", id="formula")
+            yield Static("  " + "  ".join(PARTS), classes="m-hint")
+            yield Static("Format", classes="m-label")
+            yield Select(self.FORMATS, value="cost", allow_blank=False, compact=True, id="format")
+            yield Static("", id="preview")
+            yield Static("enter saves  ·  esc closes", classes="m-hint")
+
+    def on_mount(self):
+        self.query_one("#name").focus()
+
+    def _check(self):
+        """(name, formula, format) when they will do, else None; the preview says why."""
+        preview = self.query_one("#preview", Static)
+        name = self.query_one("#name", Input).value.strip()
+        formula = self.query_one("#formula", Input).value.strip()
+        kind = self.query_one("#format", Select).value
+        if not formula:
+            preview.update(Text("type a formula, e.g. billed / views_2s", style="#7f849c"))
+            return None
+        try:
+            tree = compile_formula(formula)
+        except ValueError as e:
+            preview.update(Text(f"✗ {e}", style="#f38ba8"))
+            return None
+        missing = sorted(set(re.findall(r"[a-z_][a-z0-9_]*", formula)) - self.provides)
+        value = evaluate(tree, self.total) if self.total else None
+        shown = "–" if value is None else number(value, kind)
+        line = Text(f"= {shown}  on everything shown now", style="#a6e3a1")
+        if missing:
+            line.append(f"\n{self.platform} does not report {', '.join(missing)}: it would show –",
+                        style="#f9e2af")
+        preview.update(line)
+        return (name, formula, kind) if name else None
+
+    def on_input_changed(self, event):
+        self._check()
+
+    def on_select_changed(self, event):
+        self._check()
+
+    def on_input_submitted(self, event):
+        if event.input.id == "name":
+            self.query_one("#formula").focus()
+            return
+        got = self._check()
+        if got is None:
+            if not self.query_one("#name", Input).value.strip():
+                self.query_one("#name").focus()
+            return
+        self.dismiss()
+        self.on_save(*got)
 
 
 class PinScreen(ModalScreen):
@@ -1424,19 +1547,20 @@ class AdView(App):
     def _apply_visible(self):
         """What h / H picked (remembered), over settings.json's columns and show;
         keys settings.json no longer has drop out."""
+        # name columns: what h / H picked, remembered with the view; the number
+        # columns are the settings' show -- which H writes -- in its order
         picked = self.view.get("visible")
         if isinstance(picked, list):
-            known = {k for k, _ in self.layout.every_column()}
-            self.layout.visible = {k for k in picked if k in known}
-        # and the order shift+← → made: keys it does not know keep their place after
+            names = {f"n:{c}" for c in self.layout.names}
+            metrics = {k for k in self.layout.visible if not k.startswith("n:")}
+            self.layout.visible = {k for k in picked if k in names} | metrics
+        # and the order shift+← → made among the names: keys it does not know keep their place after
         order = self.view.get("order")
         if isinstance(order, list):
             rank = {k: i for i, k in enumerate(order)}
             names = sorted(self.layout.names,
                            key=lambda c: (rank.get(f"n:{c}", len(rank)), self.layout.names.index(c)))
             self.layout.names[:] = names
-            was = {c.key: i for i, c in enumerate(self.layout.catalog)}
-            self.layout.catalog.sort(key=lambda c: (rank.get(c.key, len(rank)), was[c.key]))
 
     def action_move_col(self, step):
         """shift+← / shift+→: the cursor's column one place left / right, past
@@ -1461,27 +1585,52 @@ class AdView(App):
         zone.insert(zone.index(neighbour) + (1 if step > 0 else 0), key)
         if key.startswith("n:"):
             self.layout.names[:] = [k[2:] for k in zone]
-        else:
+            self.view["order"] = [f"n:{c}" for c in self.layout.names]
+            self.save(self.state)
+        else:                                         # a number column: its place in show
             by_key = {c.key: c for c in self.layout.catalog}
             self.layout.catalog[:] = [by_key[k] for k in zone]
-        self.view["order"] = [f"n:{c}" for c in self.layout.names] + [c.key for c in self.layout.catalog]
-        self.save(self.state)
+            if not self._write_show([c.key for c in self.layout.catalog if c.key in self.layout.visible]):
+                return
         if self.span:
             self._redraw()
 
     def _reset_view(self):
-        """H, r: settings.json's columns, show and order again."""
+        """H, r: the settings' columns again -- this account's show taken out of
+        its file, so the platform's own set (or settings.json's) applies."""
         for k in ("visible", "order"):
             self.view.pop(k, None)
         self.save(self.state)
+        self._write_show(None)
+
+    def _write_show(self, show):
+        """This account's number columns, written to its own file (None: taken
+        out); the screen reads the settings again. False when it cannot write."""
+        try:
+            settings.write_option(self.source["platform"], self.source["account"], "show", show)
+        except (OSError, ValueError) as e:
+            self.notify(f"cannot write this account's file ({e}) -- , opens it", severity="error")
+            return False
         self.layout = self.make_layout(self.source)
+        self._apply_visible()
         if self.span:
             self._redraw()
+        return True
 
     def _set_visible(self, keys):
-        self.layout.visible = set(keys)
-        self.view["visible"] = sorted(self.layout.visible)
+        """Name columns into the view; number columns into the account's show,
+        keeping the order they had and adding new ones at the end."""
+        keys = set(keys)
+        self.view["visible"] = sorted(k for k in keys if k.startswith("n:"))
         self.save(self.state)
+        now = [c.key for c in self.layout.catalog if c.key in self.layout.visible]
+        show = [k for k in now if k in keys] + [c.key for c in self.layout.catalog
+                                               if c.key in keys and c.key not in now]
+        if show != now:
+            self._write_show(show)
+            return
+        self.layout.visible = {k for k in self.layout.visible if not k.startswith("n:")} | {
+            k for k in keys if k.startswith("n:")}
         if self.span:
             self._redraw()
 
@@ -1503,11 +1652,42 @@ class AdView(App):
                     "  ·  H brings it back", timeout=2)
 
     def action_pick_columns(self):
-        """H: every column there is -- the ones settings.json does not show too --
-        ticked when shown; each tick applies at once."""
-        self.push_screen(ColumnsScreen(self.layout.every_column(), self.layout.visible,
-                                       self.layout.default_visible, self._set_visible,
-                                       self._reset_view))
+        """H: every column there is, searchable, ticked when shown -- the
+        platform's set ticked from the start; each tick applies at once."""
+        lay = self.layout
+        cols = [(f"n:{c}", lay.label(c), "name", True) for c in lay.names]
+        for c in lay.catalog:
+            what = c.formula or "part of the spend shown"
+            ok = lay.available(c)
+            cols.append((c.key, c.header, what if ok else f"{what}  · not on {lay.platform_title}", ok))
+        title = f"Columns  ·  {self.source['label']}"
+        self.push_screen(ColumnsScreen(title, cols, lay.visible, self._set_visible,
+                                       self._reset_view, self._new_metric))
+
+    def _new_metric(self):
+        total = self.recs[0] if self.recs else None
+        self.push_screen(MetricScreen(total, self.layout.provides, self.layout.platform_title,
+                                      self.source.get("currency", ""), self._save_metric))
+
+    def _save_metric(self, name, formula, kind):
+        """The new metric into the account's own file, and shown at the end."""
+        mid = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "metric"
+        taken = {c.key for c in self.layout.catalog}
+        base, n = mid, 2
+        while mid in taken:
+            mid, n = f"{base}_{n}", n + 1
+        try:
+            mine = settings.read_option(self.source["platform"], self.source["account"], "metrics", {})
+            mine = dict(mine) if isinstance(mine, dict) else {}
+            mine[mid] = {"name": name, "formula": formula, "format": kind}
+            settings.write_option(self.source["platform"], self.source["account"], "metrics", mine)
+        except (OSError, ValueError) as e:
+            self.notify(f"cannot write this account's file ({e}) -- , opens it", severity="error")
+            return
+        now = [c.key for c in self.layout.catalog if c.key in self.layout.visible]
+        if self._write_show(now + [mid]):
+            self.cur_key = mid
+            self.notify(f"added {name}  ·  {formula}", timeout=4)
 
     # ---- pinned columns ------------------------------------------------------------
     @property

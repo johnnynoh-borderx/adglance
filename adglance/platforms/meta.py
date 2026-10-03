@@ -28,6 +28,11 @@ VIDEO = {"views": "video_play_actions", "views_2s": "video_continuous_2_sec_watc
 # adglance's count -> an action_type in `actions`
 ACTIONS = {"likes": "post_reaction", "comments": "comment", "shares": "post", "follows": "like",
            "engagements": "post_engagement"}
+# the counts it reports: no 6-second view, no profile visit -- a metric over
+# either cannot be picked for a Meta account (H shows it greyed)
+PROVIDES = {"spend", "billed", "impressions", "clicks", "watch_time", *VIDEO, *ACTIONS}
+# what a Meta account starts with: clicks and completes, not 6-second views
+SHOW = ["billed", "share", "impressions", "cpm", "ctr", "cpc", "cpv", "complete"]
 FIELDS = ["ad_id", "ad_name", "adset_name", "campaign_name", "spend", "impressions", "inline_link_clicks",
           "video_avg_time_watched_actions", "actions", *VIDEO.values()]
 
