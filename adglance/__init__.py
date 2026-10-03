@@ -5,6 +5,22 @@ import subprocess
 from importlib import metadata
 
 
+def _pep440(described):
+    """git describe's v0.1.0-3-gc5002fb as an installed copy names it,
+    0.1.1.dev3+gc5002fb, so a checkout and an install compare at a glance."""
+    dirty = described.endswith("-dirty")
+    described = described.removesuffix("-dirty").removeprefix("v")
+    parts = described.rsplit("-", 2)
+    if len(parts) == 3 and parts[1].isdigit():
+        tag, n, sha = parts
+        nums = tag.split(".")
+        nums[-1] = str(int(nums[-1]) + 1) if nums[-1].isdigit() else nums[-1]
+        described = f"{'.'.join(nums)}.dev{n}+{sha}"
+    elif "." not in described:                        # no tag yet: just the hash
+        described = f"0.0.0+g{described}"
+    return described + (" (uncommitted changes)" if dirty else "")
+
+
 @functools.cache
 def version():
     """This copy's version: from git when it runs from a checkout (an editable
@@ -19,7 +35,8 @@ def version():
             day = subprocess.run([*git, "log", "-1", "--format=%cs"],
                                  capture_output=True, text=True, timeout=2).stdout.strip()
             if described:
-                return f"{described.removeprefix('v')} ({day})" if day else described.removeprefix("v")
+                shown = _pep440(described)
+                return f"{shown} ({day})" if day else shown
         except (OSError, subprocess.SubprocessError):
             pass
     try:
