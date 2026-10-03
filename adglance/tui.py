@@ -81,6 +81,9 @@ MOCHA = Theme(name="adglance-mocha", dark=True,
               success="#a6e3a1", warning="#f9e2af", error="#f38ba8")
 DAY = re.compile(r"(\d{4}-)?\d{2}-\d{2}")         # a date typed in From
 log = logging.getLogger("adglance")
+# the Status column's width from the start: the longest word and its icon
+# ("No budget"), so statuses arriving never widen it and push the rest aside
+STATUS_WIDTH = 11
 ADD_ACCOUNT = "+add"                 # the account picker's last row: the key form, over the numbers
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 STALE = 600                                       # an unsettled day older than this is fetched again
@@ -1035,11 +1038,15 @@ class AdView(App):
             self._load(" ".join(self.words), refetch="all")
 
     # ---- filter, group, sort -----------------------------------------------------
-    def _columns(self, cols, every=None):
+    def _columns(self, cols, every=None, widths=None):
         """(Re)build the columns for what is shown now -- a textual column only
         ever grows, so one long name would otherwise keep it wide for good.
         every: all the columns, before any are hidden by a sideways scroll --
-        the number keys and their superscripts count those, so they never move."""
+        the number keys and their superscripts count those, so they never move.
+        widths: each column's widest cell, measured before the rows go in. Given
+        as a fixed width, so the table is drawn at its final widths at once:
+        left to textual, a column is drawn at its header's width until textual
+        measures the rows, then widens and pushes the rest aside."""
         every = list(every or cols)
         table = self.query_one(DataTable)
         # no fixed row over an empty table: textual looks the fixed row up and
@@ -1064,8 +1071,11 @@ class AdView(App):
             label = Text(label, justify="left" if col.kind == "name" else "right")
             if col.kind == "share":
                 table.add_column(label, key=col.key, width=SHARE_WIDTH + 1)
-            else:
-                table.add_column(label, key=col.key)
+                continue
+            width = max(label.cell_len, (widths or {}).get(col.key, 0))
+            if col.key == f"n:{STATUS}":                  # room for any status before it arrives
+                width = max(width, STATUS_WIDTH)
+            table.add_column(label, key=col.key, width=width)
 
     def _shown(self):
         """(columns, records sorted, their total, how many rows they hold)"""
@@ -1103,12 +1113,14 @@ class AdView(App):
         was = self._identity(self.recs[row], here) if 0 <= row < len(self.recs) else None
         every, recs, total, kept = self._shown()
         cols = self._visible(every)
-        self._columns(cols, every)
         # the total of exactly what is shown -- it follows the filter -- first,
         # held in place on top so it stays in view however far you scroll
         self.recs = [total] + list(recs) if recs else []
-        for r in self.recs:
-            table.add_row(*cells(cols, r, self.layout))
+        rows = [cells(cols, r, self.layout) for r in self.recs]
+        widths = {c.key: max((row[i].cell_len for row in rows), default=0) for i, c in enumerate(cols)}
+        self._columns(cols, every, widths)
+        for row_cells in rows:
+            table.add_row(*row_cells)
         table.fixed_rows = 1 if self.recs else 0      # TOTAL stays on top -- when there is one
         # a refresh keeps your place: the same row, wherever it is now
         here = grouping(self.by, self.daily)          # the grouping now (the same one, on a refresh)
