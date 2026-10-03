@@ -29,7 +29,7 @@ COUNTS = {"impressions": "impressions", "clicks": "clicks", "views": "video_play
           "views_75": "video_views_p75", "views_100": "video_views_p100",
           "likes": "likes", "comments": "comments", "shares": "shares", "follows": "follows",
           "profile_visits": "profile_visits", "engagements": "engagements"}
-METRICS = ["campaign_name", "ad_name", "spend", "average_video_play", *COUNTS.values()]
+METRICS = ["campaign_name", "adgroup_name", "ad_name", "spend", "average_video_play", *COUNTS.values()]
 # the report allows a daily breakdown over 30 days at most ("max time span is
 # 30 days when use stat_time_day"); the store asks in pieces this long
 MAX_DAYS = 30
@@ -89,8 +89,8 @@ def daily(start, end, acc):
             if spend <= 0 and impressions <= 0:
                 continue                            # a day the ad did nothing
             row = {"ad_id": d.get("ad_id_v2", ""), "day": (d.get("stat_time_day") or "")[:10],
-                   "campaign_name": m.get("campaign_name", ""), "ad_name": m.get("ad_name", ""),
-                   "spend": spend}
+                   "campaign_name": m.get("campaign_name", ""), "adgroup_name": m.get("adgroup_name", ""),
+                   "ad_name": m.get("ad_name", ""), "spend": spend}
             for part, metric in COUNTS.items():
                 row[part] = float(m.get(metric) or 0)
             row["watch_time"] = float(m.get("average_video_play") or 0) * row["views"]

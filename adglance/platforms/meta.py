@@ -28,7 +28,7 @@ VIDEO = {"views": "video_play_actions", "views_2s": "video_continuous_2_sec_watc
 # adglance's count -> an action_type in `actions`
 ACTIONS = {"likes": "post_reaction", "comments": "comment", "shares": "post", "follows": "like",
            "engagements": "post_engagement"}
-FIELDS = ["ad_id", "ad_name", "campaign_name", "spend", "impressions", "inline_link_clicks",
+FIELDS = ["ad_id", "ad_name", "adset_name", "campaign_name", "spend", "impressions", "inline_link_clicks",
           "video_avg_time_watched_actions", "actions", *VIDEO.values()]
 
 
@@ -97,7 +97,8 @@ def daily(start, end, acc):
         if spend <= 0 and impressions <= 0:
             continue
         row = {"ad_id": m.get("ad_id", ""), "day": m.get("date_start", ""),
-               "campaign_name": m.get("campaign_name", ""), "ad_name": m.get("ad_name", ""),
+               "campaign_name": m.get("campaign_name", ""), "adgroup_name": m.get("adset_name", ""),
+               "ad_name": m.get("ad_name", ""),
                "spend": spend, "impressions": impressions,
                "clicks": float(m.get("inline_link_clicks") or 0)}
         for part, field in VIDEO.items():

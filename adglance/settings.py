@@ -79,18 +79,21 @@ OPTIONS = [
      "offered. e.g. {\"US\": \"blue\", \"VV\": \"peach\"}"),
     ("highlight", [],
      "Values drawn yellow with a trophy, e.g. [\"Winner\"]."),
-    ("names", {"campaign": ["campaign"], "ad": ["ad"]},
-     "How names become columns. Out of the box a name is one column: Campaign, Ad.\n"
+    ("names", {},
+     "How names become columns. Out of the box each name is one column, as it is:\n"
+     "Campaign, Ad group (Ad set on Meta), Ad -- always there to show (H) and what\n"
+     "the levels group by (1 campaigns, 2 ad groups, 3 ads).\n"
      "Most people need nothing more. If your names are built from pieces\n"
      "(BRAND_US_VV_Launch), split them:\n"
      "  split     the separator, e.g. \"_\"\n"
      "  campaign  a column name for each piece, in order; \"\" skips a piece, and\n"
      "            the last named piece takes whatever is left\n"
+     "  adgroup   the same for the ad group (ad set) name\n"
      "  ad        the same for the ad name\n"
      "  labels    short headers, e.g. {\"objective\": \"Obj\"}\n"
      "  columns   which columns show, in order (status: the ad's state)\n"
      "Advanced, for names a separator cannot read:\n"
-     "  patterns  {\"campaign\": [regex, ...], \"ad\": [...]}: tried in order, the\n"
+     "  patterns  {\"campaign\": [regex, ...], \"adgroup\": [...], \"ad\": [...]}: in order, the\n"
      "            first that matches fills the columns named by its (?P<name>...)\n"
      "            groups. Replaces campaign / ad.\n"
      "  defaults  a value for a group that matched empty\n"
@@ -112,7 +115,7 @@ OPTIONS = [
      "not report (Meta has no 6-second view) is 0, and a rate over it shows -."),
 ]
 DEFAULTS = {key: value for key, value, _ in OPTIONS}
-NAME_KEYS = {"split", "campaign", "ad", "labels", "columns", "patterns", "defaults", "months",
+NAME_KEYS = {"split", "campaign", "adgroup", "ad", "labels", "columns", "patterns", "defaults", "months",
              "make", "spaced"}
 KINDS = {list: "a list [...]", dict: "an object {...}", str: "text", bool: "true or false",
          int: "a whole number", float: "a number"}
@@ -204,7 +207,7 @@ def names_spec(names, problems):
         if not isinstance(pats, dict):
             problems.append("names.patterns: {\"campaign\": [...], \"ad\": [...]}")
             pats = {}
-        for src in ("campaign", "ad"):
+        for src in ("campaign", "adgroup", "ad"):
             spec[src] = pats.get(src) or []
             captured += [g for p in spec[src] if isinstance(p, str)
                          for g in re.findall(r"\(\?P<([A-Za-z_]\w*)>", p)]
@@ -213,8 +216,11 @@ def names_spec(names, problems):
         if sep is not None and not isinstance(sep, str):
             problems.append("names.split: a string such as \"_\"")
             sep = None
-        for src in ("campaign", "ad"):
-            cols = names.get(src, [src])
+        for src in ("campaign", "adgroup", "ad"):
+            if src not in names:
+                spec[src] = []
+                continue
+            cols = names.get(src)
             pattern = _pieces(cols, sep, problems, src)
             spec[src] = [pattern] if pattern else []
             for c in cols if isinstance(cols, list) and pattern else []:
@@ -230,8 +236,9 @@ def names_spec(names, problems):
     if "columns" not in spec:
         parts = {f for t in make.values() if isinstance(t, str) for f in re.findall(r"{(\w+)}", t)}
         months = set(names.get("months") or [])
-        spec["columns"] = [c for c in dict.fromkeys([*captured, *make])
-                           if c not in parts and c not in months] + ["status"]
+        # nothing split: the names as they are; else what the settings cut from them
+        cut = [c for c in dict.fromkeys([*captured, *make]) if c not in parts and c not in months]
+        spec["columns"] = (cut or ["campaign_name", "adgroup_name", "ad_name"]) + ["status"]
     return spec
 
 

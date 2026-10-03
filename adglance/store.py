@@ -23,7 +23,7 @@ from .style import PARTS
 
 CACHE = pathlib.Path.home() / ".cache" / "adglance"
 PARALLEL = 4                         # report pieces asked at once (1.6 s for Jan..Sep, not 6.8)
-SCHEMA = 2                           # 2: an ad's names are stamped with when they were fetched
+SCHEMA = 3                           # 3: an ad's ad group (ad set) name too
 _ZONE = {"name": None}               # the ad account's time zone: its days, not this machine's
 
 
@@ -96,10 +96,7 @@ class Store:
         cols = ", ".join(f"{p} REAL NOT NULL DEFAULT 0" for p in PARTS)
         with self.lock, self.db:
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
-            if version == 1:                         # names stamped by day: any fetch now wins
-                self.db.execute("UPDATE ads SET seen = ''")
-                self.db.execute(f"PRAGMA user_version = {SCHEMA}")
-            elif version != SCHEMA:                  # an older layout: start over, it is a cache
+            if version != SCHEMA:                    # an older layout: start over, it is a cache
                 self.db.executescript("DROP TABLE IF EXISTS daily; DROP TABLE IF EXISTS ads; "
                                       "DROP TABLE IF EXISTS days;")
                 self.db.execute(f"PRAGMA user_version = {SCHEMA}")
@@ -107,7 +104,7 @@ class Store:
                             "PRIMARY KEY (ad_id, day))")
             # the latest names per ad: a rename shows on the ad's whole history
             self.db.execute("CREATE TABLE IF NOT EXISTS ads (ad_id TEXT PRIMARY KEY, "
-                            "campaign_name TEXT, ad_name TEXT, seen TEXT)")
+                            "campaign_name TEXT, adgroup_name TEXT, ad_name TEXT, seen TEXT)")
             # every day fetched, with or without spend, and when
             self.db.execute("CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, at REAL)")
 
@@ -144,14 +141,15 @@ class Store:
                          for p in PARTS)
         day = ", daily.day AS day" if daily else ""
         by = "daily.ad_id, daily.day" if daily else "daily.ad_id"
-        sql = (f"SELECT daily.ad_id, ads.campaign_name, ads.ad_name{day}, {sums} FROM daily "
+        sql = (f"SELECT daily.ad_id, ads.campaign_name, ads.adgroup_name, ads.ad_name{day}, {sums} FROM daily "
                f"LEFT JOIN ads USING (ad_id) WHERE daily.day BETWEEN ? AND ? GROUP BY {by}")
         with self.lock:
             cur = self.db.execute(sql, (start, end))
             names = [c[0] for c in cur.description]
             out = [dict(zip(names, row)) for row in cur.fetchall()]
         for r in out:
-            r["campaign_name"], r["ad_name"] = r["campaign_name"] or "", r["ad_name"] or ""
+            for k in ("campaign_name", "adgroup_name", "ad_name"):
+                r[k] = r[k] or ""
         return [r for r in out if r["spend"] > 0 or r["impressions"] > 0]
 
     # ---- statuses: the ad's state now, not a count -------------------------------
@@ -227,9 +225,9 @@ class Store:
             stamp = f"{now:017.6f}"                  # sorts as text
             for r in rows:
                 self.db.execute(
-                    "INSERT INTO ads VALUES (?, ?, ?, ?) ON CONFLICT (ad_id) DO UPDATE SET "
-                    "campaign_name = excluded.campaign_name, ad_name = excluded.ad_name, "
-                    "seen = excluded.seen WHERE excluded.seen >= ads.seen",
-                    (r["ad_id"], r["campaign_name"], r["ad_name"], stamp))
+                    "INSERT INTO ads VALUES (?, ?, ?, ?, ?) ON CONFLICT (ad_id) DO UPDATE SET "
+                    "campaign_name = excluded.campaign_name, adgroup_name = excluded.adgroup_name, "
+                    "ad_name = excluded.ad_name, seen = excluded.seen WHERE excluded.seen >= ads.seen",
+                    (r["ad_id"], r["campaign_name"], r.get("adgroup_name", ""), r["ad_name"], stamp))
             self.db.executemany("INSERT OR REPLACE INTO days VALUES (?, ?)",
                                 [(str(d), now) for d in days(start, min(end, last), self.zone)])

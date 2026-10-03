@@ -85,6 +85,8 @@ log = logging.getLogger("adglance")
 # ("No budget"), so statuses arriving never widen it and push the rest aside
 STATUS_WIDTH = 11
 ADD_ACCOUNT = "+add"                 # the account picker's last row: the key form, over the numbers
+# 1 campaigns, 2 ad groups (in their campaigns), 3 the ads themselves
+LEVELS = {1: ("campaign_name",), 2: ("campaign_name", "adgroup_name"), 3: ()}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 STALE = 600                                       # an unsettled day older than this is fetched again
 HISTORY = 10                                      # periods remembered
@@ -93,6 +95,7 @@ HISTORY = 10                                      # periods remembered
 # every key, for the ? screen -- the footer shows only the everyday ones
 KEYS = [
     ("Move and act", [("← → ↑ ↓", "move cell by cell; the cursor's row is banded"),
+                      ("1  2  3", "campaigns  /  ad groups  /  ads -- enter goes a level down"),
                       ("cmd + ← → ↑ ↓", "to the edge: first / last column, first / last row"),
                       ("", "  (the terminal may keep cmd+↑↓: ctrl + arrows arrive the same;"),
                       ("", "   or Ghostty: keybind = cmd+down=text:\\x1b[1;5B, cmd+up …5A)"),
@@ -163,7 +166,10 @@ class Table(DataTable):
                 Binding("super+right,ctrl+right,ctrl+e", "app.cell_step(99)", show=False),
                 Binding("super+left,ctrl+left,ctrl+a", "app.cell_step(-99)", show=False),
                 Binding("super+down,ctrl+down", "app.row_edge(1)", show=False),
-                Binding("super+up,ctrl+up", "app.row_edge(-1)", show=False)]
+                Binding("super+up,ctrl+up", "app.row_edge(-1)", show=False),
+                # the levels: on the table only, so digits typed in a box stay digits
+                Binding("1", "app.level(1)", show=False), Binding("2", "app.level(2)", show=False),
+                Binding("3", "app.level(3)", show=False)]
     ROW_BAND = "#313048"
     TOTAL_LIT = "#7a68b0"                             # TOTAL's band, brighter, under the cursor
 
@@ -1506,7 +1512,9 @@ class AdView(App):
     # ---- pinned columns ------------------------------------------------------------
     @property
     def pins(self):
-        return self.pin if self.pin_on else []
+        # a level's own names (Campaign, Ad group) stay in view like a pin: they are the rows
+        lead = [c for c in LEVELS[2] if c in self.by]
+        return lead + [c for c in self.pin if c not in lead] if self.pin_on else lead
 
     def _movable(self, cols):
         return [c for c in cols if not (c.kind == "name" and c.key[2:] in self.pins)]
@@ -1640,6 +1648,13 @@ class AdView(App):
                     if k != DATE or self.daily)      # a day picked only binds while Daily is on
                 and all(matches(r, f) for f in self.filters))
 
+    def action_level(self, n):
+        """1 / 2 / 3: the campaigns, their ad groups, or the ads, over what is
+        in view (a drill-down keeps its scope). Enter goes a level down."""
+        self._set_group(LEVELS[n])
+        self._group_button()
+        self._place(1)
+
     def action_drill(self):
         """space: into the group under the cursor -- its ads, a level down -- or,
         on an ad, its menu."""
@@ -1671,7 +1686,8 @@ class AdView(App):
         self.where = {**self.where, **step}
         if box.value.strip():                          # the filter goes down with you
             self.filters = self.filters + [box.value.strip()]
-        self.by = ()                                   # a level down: the ads themselves
+        # a level down: a campaign's ad groups (from level 1), else the ads themselves
+        self.by = LEVELS[2] if set(self.by) == set(LEVELS[1]) else ()
         box.value = ""
         self.sort_key, self.reverse = (f"n:{DATE}", False) if self.daily else self.layout.sort
         self.then = []

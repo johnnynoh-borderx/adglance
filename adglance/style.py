@@ -52,6 +52,10 @@ DEFAULT_SHOW = ["billed", "share", "cpm", "cpv", "cpv6", "cpf"]
 Column = namedtuple("Column", "key header kind formula")
 COUNT = Column("count", "Ads", "count", None)
 STATUS = "status"                    # the ad's state now (Live, Off, ...), from the platform
+# the names as they are, always there whatever settings split them into: the
+# levels (1 campaigns, 2 ad groups, 3 ads) group by these
+RAW = {"campaign_name": "Campaign", "adgroup_name": "Ad group", "ad_name": "Ad"}
+SOURCES = {"campaign": "campaign_name", "adgroup": "adgroup_name", "ad": "ad_name"}
 DATE = "date"                        # the day column Daily adds (shown as Date)
 ALL = "*"                            # the group that holds everything
 
@@ -131,7 +135,7 @@ class Layout:
         spec = names.get(platform) or names.get("default") or {}
         if not spec:
             self.problems.append("names: nothing to read names with -- they are not split")
-        self.patterns = {src: self._patterns(spec.get(src), src) for src in ("campaign", "ad")}
+        self.patterns = {src: self._patterns(spec.get(src), src) for src in SOURCES}
         captured = {g for pats in self.patterns.values() for p in pats for g in p.groupindex}
         made = dict(spec.get("make") or {})
         self.make = {}
@@ -148,7 +152,8 @@ class Layout:
         self.defaults = {k: str(v) for k, v in dict(spec.get("defaults") or {}).items()}
         self.months = set(spec.get("months") or [])
         self.spaced = set(spec.get("spaced") or [])
-        known = captured | set(self.make) | {STATUS}     # status comes from the platform, not a name
+        # status comes from the platform, the raw names from the report, not a pattern
+        known = captured | set(self.make) | {STATUS} | set(RAW)
         wanted = spec.get("columns") or sorted(known)
         self.names = []
         for c in wanted:
@@ -164,9 +169,10 @@ class Layout:
         self.shown_names = list(self.names)
         self.names += sorted(c for c in known - set(self.names) - parts - self.months)
         # the short header each column shows under; its name stays the mart's
-        self.labels = {DATE: "Date", **{c: c for c in self.names}, **(spec.get("labels") or {})}
+        raw = dict(RAW, adgroup_name="Ad set" if platform == "meta" else "Ad group")
+        self.labels = {DATE: "Date", **{c: c for c in self.names}, **raw, **(spec.get("labels") or {})}
         # the columns cut from the ad name, drawn bright -- what the row is about
-        self.from_ad = {g for p in self.patterns["ad"] for g in p.groupindex}
+        self.from_ad = {g for p in self.patterns["ad"] for g in p.groupindex} | {"ad_name"}
         self._cut = functools.lru_cache(maxsize=None)(self._cut_uncached)
 
         metrics = cfg.get("metrics", {})
@@ -311,9 +317,12 @@ class Layout:
                 return out
         return {}
 
-    def cut(self, campaign, ad):
-        """{column: value} for one row, from its campaign and ad names."""
-        got = {**self._cut("campaign", campaign), **self._cut("ad", ad)}
+    def cut(self, campaign, ad, adgroup=""):
+        """{column: value} for one row, from its campaign, ad group and ad names
+        -- what the patterns cut from them, and the names as they are."""
+        got = {**self._cut("campaign", campaign), **self._cut("adgroup", adgroup),
+               **self._cut("ad", ad), "campaign_name": campaign, "adgroup_name": adgroup,
+               "ad_name": ad}
         for col, (template, fields) in self.make.items():
             if all(got.get(f) for f in fields):       # else keep what a pattern gave, if any
                 got[col] = template.format_map(got)
@@ -372,7 +381,9 @@ class Layout:
         """The columns to draw: Date when daily, the name columns -- while
         grouped, only those that hold one value in every group, then Ads -- and
         the metrics."""
-        names = [col for col in ([DATE] if daily else []) + self.names
+        # a level's names (Campaign, Ad group) lead: they are what the rows are
+        lead = [c for c in RAW if c in by]
+        names = [col for col in ([DATE] if daily else []) + lead + [c for c in self.names if c not in lead]
                  if (col == DATE or f"n:{col}" in self.visible or col in by)
                  and (not by or col in by or not any(col in r.get("mixed", ()) for r in recs))]
         cols = [Column(f"n:{col}", self.label(col), "name", None) for col in names]
@@ -390,7 +401,7 @@ def prepare(raw, layout, statuses=None):
     out = []
     for r in raw:
         campaign, ad = r.get("campaign_name", ""), r.get("ad_name", "")
-        names = layout.cut(campaign, ad)
+        names = layout.cut(campaign, ad, r.get("adgroup_name", ""))
         raw_status = None
         if STATUS in names:
             if statuses is None:
@@ -402,7 +413,7 @@ def prepare(raw, layout, statuses=None):
             names = {DATE: r["day"], **names}
         gate = layout.target(names)
         rec = {p: r.get(p) or 0.0 for p in PARTS}
-        rec.update(names=names, campaign_name=campaign, ad_name=ad,
+        rec.update(names=names, campaign_name=campaign, adgroup_name=r.get("adgroup_name", ""), ad_name=ad,
                    judged=gate[0] if gate else None, limit=gate[1] if gate else None,
                    ids=frozenset([r.get("ad_id") or ad]), n=1, raw_status=raw_status)
         out.append(rec)
@@ -633,7 +644,7 @@ def cells(cols, r, layout):
             else:
                 # a long project name would widen its whole column; the detail
                 # line under the table has it in full
-                limit = CONTENT_WIDTH if name in from_ad else NAME_WIDTH
+                limit = CONTENT_WIDTH if name in from_ad or name in RAW else NAME_WIDTH
                 shown = v if len(v) <= limit else v[:limit - 1] + "…"
                 shown = f"{icon('winner')}{shown}" if v in HIGHLIGHT else shown
                 cell = Text(shown, style=_name_style(v, i, name in from_ad))

@@ -14,6 +14,8 @@ adglance setup      # add, check and edit accounts later (or A on the screen: + 
   formula, so its CPV is the real one, never an average of averages.
 - **Nothing to set up but a key.** Onboarding asks for the token and the
   account id; names show as they are. Everything else is an option.
+- **Campaigns, ad groups, ads.** `1` `2` `3` switch the level; Enter on a
+  campaign opens its ad groups, on an ad group its ads.
 - **Keyboard first.** Arrow keys move a cell cursor, Enter opens a group or an
   ad, Esc goes back, `/` filters, `s` sorts, `G` groups, `d` goes daily, `?`
   lists every key.
