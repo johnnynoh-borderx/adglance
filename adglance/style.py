@@ -203,6 +203,7 @@ class Layout:
             seen.add(mid)
             order.append(mid)
         self.catalog = []
+        self.better = {}                              # metric id -> lower / higher is good
         for mid in order:
             m = metrics.get(mid)
             listed = mid in show
@@ -230,6 +231,8 @@ class Layout:
                 continue
             self.catalog.append(Column(mid, m.get("name", mid), kind,
                                        None if kind == "share" else formula))
+            if m.get("better") in ("lower", "higher"):
+                self.better[mid] = m["better"]
         self.platform_title = getattr(module, "TITLE", platform)
         # the summary cards: metrics this platform can work out
         cards = cfg.get("cards")
@@ -406,8 +409,8 @@ class Layout:
         """The columns to draw: Date when daily, the name columns -- while
         grouped, only those that hold one value in every group, then Ads -- and
         the metrics."""
-        # a level's names (Campaign, Ad group) lead: they are what the rows are
-        lead = [c for c in RAW if c in by]
+        # a level's names lead, the most particular first (Ad group, then Campaign)
+        lead = [c for c in reversed(RAW) if c in by]
         names = [col for col in ([DATE] if daily else []) + lead + [c for c in self.names if c not in lead]
                  if (col == DATE or f"n:{col}" in self.visible or col in by)
                  and (not by or col in by or not any(col in r.get("mixed", ()) for r in recs))]

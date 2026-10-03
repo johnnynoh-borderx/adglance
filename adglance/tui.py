@@ -61,7 +61,7 @@ from . import settings
 from .actions import ActionScreen
 from .datepicker import CalendarScreen
 from .store import days, freshness, set_zone, today as account_today
-from .style import (ALL, CHEVRONS, PARTS, SYMBOL, compile_formula, evaluate, number, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
+from .style import (ALL, CHEVRONS, PARTS, RAW, SYMBOL, compile_formula, evaluate, number, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
                           header_label, matches, ordered, prepare, with_share)
 
 COMMON = ["today", "yesterday", "mtd", "lm", "7d", "14d", "30d"]
@@ -303,8 +303,8 @@ class ColumnsScreen(ModalScreen):
             yield Static(self.title_text, classes="title")
             yield Input(placeholder="Search columns…  (cpv, click, complete…)", id="q")
             yield SelectionList()
-            yield Static("↓ to the list  ·  space ticks  ·  n new metric  ·  r the defaults  ·  esc closes",
-                         classes="hint")
+            yield Static("↓ results  ·  space tick  ·  n new  ·  r reset  ·  esc close\n"
+                         "saved for this account as you tick", classes="hint")
 
     def on_mount(self):
         self._fill("")
@@ -318,8 +318,8 @@ class ColumnsScreen(ModalScreen):
             hay = f"{key} {label} {what}".lower()
             if words and not all(w in hay for w in words):
                 continue
-            text = Text(f"{label:<16}", style="" if available else "#585b70")
-            text.append(what, style="#6c7086" if available else "#45475a")
+            text = Text(f"{label:<16}", style="" if available else "#6c7086")
+            text.append(what, style="#7f849c" if available else "#9399b2 italic")
             box.add_option(Selection(text, key, key in self.shown, disabled=not available))
 
     def on_input_changed(self, event):
@@ -384,12 +384,12 @@ class MetricScreen(ModalScreen):
     def compose(self):
         with Vertical():
             yield Static("New metric", classes="m-title")
-            yield Static("written to this account's own file (, opens it)", classes="m-hint")
+            yield Static("saved for this account  ·  , opens its file", classes="m-hint")
             yield Static("Name", classes="m-label")
-            yield Input(placeholder="3s CPV", id="name")
+            yield Input(placeholder="2s CPV", id="name")
             yield Static("Formula: counts, numbers, + - * / and brackets", classes="m-label")
             yield Input(placeholder="billed / views_2s", id="formula")
-            yield Static("  " + "  ".join(PARTS), classes="m-hint")
+            yield Static(self._counts(), classes="m-hint")
             yield Static("Format", classes="m-label")
             yield Select(self.FORMATS, value="cost", allow_blank=False, compact=True, id="format")
             yield Static("", id="preview")
@@ -397,6 +397,14 @@ class MetricScreen(ModalScreen):
 
     def on_mount(self):
         self.query_one("#name").focus()
+
+    def _counts(self):
+        """The counts to build from; the ones this platform lacks struck through."""
+        text = Text("  ")
+        for p in PARTS:
+            text.append(p, style="#7f849c" if p in self.provides else "#585b70 strike")
+            text.append("  ")
+        return text
 
     def _check(self):
         """(name, formula, format) when they will do, else None; the preview says why."""
@@ -414,8 +422,10 @@ class MetricScreen(ModalScreen):
             return None
         missing = sorted(set(re.findall(r"[a-z_][a-z0-9_]*", formula)) - self.provides)
         value = evaluate(tree, self.total) if self.total else None
-        shown = "–" if value is None else number(value, kind)
-        line = Text(f"= {shown}  on everything shown now", style="#a6e3a1")
+        sym = SYMBOL.get(self.currency, "") if kind in ("money", "cost") else ""
+        shown = "–" if value is None else sym + number(value, kind)
+        line = Text("Current total: ", style="#a6adc8")
+        line.append(shown, style="bold #cdd6f4")
         if missing:
             line.append(f"\n{self.platform} does not report {', '.join(missing)}: it would show –",
                         style="#f9e2af")
@@ -536,6 +546,10 @@ class AdView(App):
              background: #181825; color: #cdd6f4; text-style: none; }
     #group:hover { background: #313244; }
     #group.on { color: #cba6f7; text-style: bold; }
+    .level { width: auto; min-width: 0; padding: 0 1; margin: 0 0 0 1; background: #181825;
+             color: #7f849c; text-style: none; }
+    .level:hover { background: #313244; }
+    .level.on { color: #11111b; background: #cba6f7; text-style: bold; }
     Input, SelectCurrent { background: #181825; color: #cdd6f4; }
     Input:focus, Select:focus > SelectCurrent { background: #313244; }
     Input > .input--placeholder, Input > .input--suggestion { color: #6c7086; }
@@ -576,8 +590,8 @@ class AdView(App):
     Input.invalid { background: #3b2533; color: #f38ba8; }
     #crumbs { display: none; height: 1; margin: 0 0 1 0; }
     /* the summary: what is shown, summed, and its change on the period before */
-    #cards { height: 4; margin: 0 0 1 0; padding: 0 1; }
-    #cards .card { width: 1fr; max-width: 34; height: 4; padding: 0 2; margin: 0 1 0 0;
+    #cards { height: 3; margin: 0 0 1 0; padding: 0 1; }
+    #cards .card { width: 1fr; max-width: 34; height: 3; text-wrap: nowrap; text-overflow: ellipsis; padding: 0 2; margin: 0 1 0 0;
                    background: #181825; border-left: tall #cba6f7; }
     #crumbs.shown { display: block; }
     #crumbs Button { width: auto; min-width: 0; padding: 0 1; margin: 0; background: #181825;
@@ -605,10 +619,10 @@ class AdView(App):
                 # each picker: lower case steps to the next choice, upper case opens the list
                 Binding("a", "next_account", show=False), Binding("A", "open('account')", show=False),
                 ("g", "toggle_group", "Group on/off"), Binding("G", "pick_group", show=False),
-                Binding("escape", "clear", "Back"),
+                Binding("escape", "clear_filter", "Clear filter"), Binding("escape", "clear", "Back"),
                 ("s", "sort_here", "Sort"), Binding("S", "pick_sort", show=False),
                 Binding("f", "toggle_pin", show=False), Binding("F", "pick_pin", show=False),
-                Binding("h", "hide_here", show=False), Binding("H", "pick_columns", show=False),
+                Binding("h", "hide_here", show=False), Binding("H", "pick_columns", "Columns"),
                 ("d", "daily", "Daily"), ("r", "reload", "Refresh"),
                 Binding("comma", "settings", show=False),
                 Binding("R", "refetch_all", show=False), ("question_mark", "help", "Keys"),
@@ -702,9 +716,11 @@ class AdView(App):
                 yield Static(f"{icon('filter')}Filter", classes="label")
                 yield Input(value=self.query_text, id="filter", compact=True,
                             placeholder="Filter…")
+                for n, word in ((1, "Campaigns"), (2, "Ad groups"), (3, "Ads")):
+                    yield Button(f"{n} {word}", id=f"level-{n}", compact=True, classes="level")
                 yield Button(self._group_label(), id="group", compact=True)
-        yield Horizontal(id="cards")              # the summary: totals and their change
         yield Horizontal(id="crumbs")             # where a drill-down has gone: All ❯ US ❯ ...
+        yield Horizontal(id="cards")              # the summary of that: totals and their change
         table = Table(zebra_stripes=True, cursor_type="cell", cell_padding=1)
         # the cursor's cell takes the cursor's colours (its row keeps theirs)
         table.cursor_foreground_priority = "css"
@@ -758,7 +774,7 @@ class AdView(App):
         self.set_interval(60, self._keep_current)      # left open, it keeps itself current
         self._banner()
         self._fit_account()
-        self.query_one("#group", Button).set_class(bool(self.by), "on")
+        self._group_button()
         if self.words:
             self._load(" ".join(self.words))
         if not self.state.get("hinted"):               # once: where everything else is set
@@ -1104,6 +1120,9 @@ class AdView(App):
             self.action_calendar()
         elif bid.startswith("chip-"):
             self.action_quick(bid.removeprefix("chip-"))
+        elif bid.startswith("level-"):
+            self.action_level(int(bid.removeprefix("level-")))
+            self.query_one(DataTable).focus()
 
     @property
     def view(self):
@@ -1228,6 +1247,8 @@ class AdView(App):
         # on copies: a formula never writes over the counts it is worked out from
         recs = with_share([derive(dict(r), metrics) for r in group(keep, by)], total["billed"])
         cols = self.layout.columns(recs, by, self.daily)
+        # a level name the drill-down fixed (the campaign, inside it) is in the path bar
+        cols = [c for c in cols if not (c.kind == "name" and c.key[2:] in RAW and c.key[2:] in self.where)]
         shown = {c.key for c in cols}
         if self.sort_key not in shown:                          # its column dropped out
             self.sort_key, self.reverse = self.layout.sort
@@ -1348,23 +1369,32 @@ class AdView(App):
         sym = SYMBOL.get(self.source.get("currency", ""), "")
         n = (self.dates[1] - self.dates[0]).days + 1
         widgets = []
-        for c in cards:
+        ads = self.recs[0].get("n", 0)
+        # what the cards cover, short enough for a card's first line
+        scope = " (filtered)" if self.query_one("#filter", Input).value.strip() or self.filters else (
+            " (group)" if self.where else "")
+        for i, c in enumerate(cards):
             v = now.get(c.key)
             shown = "–" if v is None else (sym if c.kind in ("money", "cost") else "") + number(v, c.kind)
-            text = Text(f"{c.header}\n", style="#a6adc8")
+            text = Text(f"{c.header}", style="#a6adc8")
+            if i == 0:                                # what all the cards cover
+                text.append(f" · {ads:,} ad{'s' if ads != 1 else ''}{scope}", style="#6c7086")
+            text.append("\n")
             text.append(f"{shown}\n", style="bold #ffffff")
             p = prev.get(c.key) if prev else None
             if prev is None:
                 text.append("… the period before", style="#6c7086")
             elif v is None or not p:
-                text.append(f"– no {n}d before to compare", style="#6c7086")
+                text.append(f"– nothing in the previous {n}d", style="#6c7086")
             else:
                 change = (v - p) / abs(p)
-                up = change >= 0
-                better = None if c.key == "billed" else (not up if c.kind in ("money", "cost") else up)
+                up = change > 0
+                way = self.layout.better.get(c.key)   # lower / higher is good; unknown: neutral
+                better = None if way is None or round(change, 3) == 0 else (up == (way == "higher"))
                 colour = "#a6adc8" if better is None else ("#94e2d5" if better else "#fab387")
-                text.append(f"{'▲' if up else '▼'} {abs(change) * 100:.1f}%", style=f"bold {colour}")
-                text.append(f"  vs {n}d before", style="#6c7086")
+                mark = "▲" if up else "▼" if change < 0 else "="
+                text.append(f"{mark} {abs(change) * 100:.1f}%", style=f"bold {colour}")
+                text.append(f"  vs previous {n}d", style="#6c7086")
             widgets.append(text)
         have = list(box.query(".card"))
         if len(have) == len(widgets):                 # the same cards: new words, no flicker
@@ -1493,6 +1523,8 @@ class AdView(App):
     def on_input_changed(self, event):
         """The filter redraws as you type -- after a pause of a key or two, so a
         long Daily table is not summed again for every letter."""
+        if event.input.id == "filter":
+            self.refresh_bindings()                   # esc: Clear filter / Back
         if event.input.id == "filter" and self.span:
             if self.typing:
                 self.typing.stop()
@@ -1616,10 +1648,7 @@ class AdView(App):
             self.last_by = self.by
         self.view.update(by=list(self.by), last_by=list(self.last_by))
         self.save(self.state)
-        button = self.query_one("#group", Button)
-        button.label = self._group_label()
-        button.set_class(bool(self.by), "on")
-        button.refresh(layout=True)                   # a longer label needs a wider button
+        self._group_button()                          # and the level lit, if it is one
         if self.span:
             self._redraw()
 
@@ -1782,7 +1811,7 @@ class AdView(App):
     @property
     def pins(self):
         # a level's own names (Campaign, Ad group) stay in view like a pin: they are the rows
-        lead = [c for c in LEVELS[2] if c in self.by]
+        lead = [c for c in reversed(LEVELS[2]) if c in self.by and c not in self.where]
         return lead + [c for c in self.pin if c not in lead] if self.pin_on else lead
 
     def _movable(self, cols):
@@ -1898,6 +1927,20 @@ class AdView(App):
     def action_focus_filter(self):
         self.query_one("#filter", Input).focus()
 
+    def check_action(self, action, parameters):
+        """esc's label says what it will do: clear the filter, or go back."""
+        if action in ("clear_filter", "clear"):
+            try:
+                typed = bool(self.query_one("#filter", Input).value)
+            except Exception:
+                return True
+            return typed if action == "clear_filter" else not typed
+        return True
+
+    def action_clear_filter(self):
+        self.query_one("#filter", Input).value = ""
+        self.query_one(DataTable).focus()
+
     def action_clear(self):
         """esc, the one back key: undo the last thing -- a filter is cleared
         first; with none, up a level. (Dialogs close on esc themselves.)"""
@@ -2011,6 +2054,9 @@ class AdView(App):
         bar.mount_all(widgets)
 
     def _group_button(self):
+        for n, by in LEVELS.items():                  # the level lit, if the grouping is one
+            self.query_one(f"#level-{n}", Button).set_class(tuple(self.by) == by
+                                                            or (n == 3 and not self.by), "on")
         button = self.query_one("#group", Button)
         button.label = self._group_label()
         button.set_class(bool(self.by), "on")

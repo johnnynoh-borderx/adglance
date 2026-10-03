@@ -38,20 +38,20 @@ METRICS = {
     "share":       {"name": "Share",                                               "format": "share"},
     "impressions": {"name": "Impr",      "formula": "impressions",                 "format": "number"},
     "views":       {"name": "Views",     "formula": "views",                       "format": "number"},
-    "cpm":         {"name": "CPM",       "formula": "billed / impressions * 1000", "format": "money"},
-    "cpv":         {"name": "CPV",       "formula": "billed / views",              "format": "cost"},
-    "cpv2":        {"name": "2s CPV",    "formula": "billed / views_2s",           "format": "cost"},
-    "cpv6":        {"name": "6s CPV",    "formula": "billed / views_6s",           "format": "cost"},
-    "cpcv":        {"name": "CPCV",      "formula": "billed / views_100",          "format": "cost"},
-    "cpf":         {"name": "CPF",       "formula": "billed / follows",            "format": "cost"},
-    "cpe":         {"name": "CPE",       "formula": "billed / engagements",        "format": "cost"},
-    "cpc":         {"name": "CPC",       "formula": "billed / clicks",             "format": "cost"},
-    "ctr":         {"name": "CTR",       "formula": "clicks / impressions",        "format": "pct"},
-    "rate_2s":     {"name": "2s rate",   "formula": "views_2s / views",            "format": "pct"},
-    "rate_6s":     {"name": "6s rate",   "formula": "views_6s / views",            "format": "pct"},
-    "complete":    {"name": "Complete",  "formula": "views_100 / views",           "format": "pct"},
-    "avg_watch":   {"name": "Avg watch", "formula": "watch_time / views",          "format": "number"},
-    "er":          {"name": "ER",        "formula": "engagements / impressions",   "format": "pct"},
+    "cpm":         {"name": "CPM",       "formula": "billed / impressions * 1000", "format": "money", "better": "lower"},
+    "cpv":         {"name": "CPV",       "formula": "billed / views",              "format": "cost", "better": "lower"},
+    "cpv2":        {"name": "2s CPV",    "formula": "billed / views_2s",           "format": "cost", "better": "lower"},
+    "cpv6":        {"name": "6s CPV",    "formula": "billed / views_6s",           "format": "cost", "better": "lower"},
+    "cpcv":        {"name": "CPCV",      "formula": "billed / views_100",          "format": "cost", "better": "lower"},
+    "cpf":         {"name": "CPF",       "formula": "billed / follows",            "format": "cost", "better": "lower"},
+    "cpe":         {"name": "CPE",       "formula": "billed / engagements",        "format": "cost", "better": "lower"},
+    "cpc":         {"name": "CPC",       "formula": "billed / clicks",             "format": "cost", "better": "lower"},
+    "ctr":         {"name": "CTR",       "formula": "clicks / impressions",        "format": "pct", "better": "higher"},
+    "rate_2s":     {"name": "2s rate",   "formula": "views_2s / views",            "format": "pct", "better": "higher"},
+    "rate_6s":     {"name": "6s rate",   "formula": "views_6s / views",            "format": "pct", "better": "higher"},
+    "complete":    {"name": "Complete",  "formula": "views_100 / views",           "format": "pct", "better": "higher"},
+    "avg_watch":   {"name": "Avg watch", "formula": "watch_time / views",          "format": "number", "better": "higher"},
+    "er":          {"name": "ER",        "formula": "engagements / impressions",   "format": "pct", "better": "higher"},
 }
 
 # (key, default, what it does) -- in the order +show-config prints them
@@ -121,6 +121,7 @@ OPTIONS = [
      "          views_100  watch_time (seconds)  likes  comments  shares  follows\n"
      "          profile_visits  engagements\n"
      "  format  money  cost (one decimal)  pct  number  share (part of the spend)\n"
+     "  better  lower or higher: which way a change is good, for the cards' colour\n"
      "+ - * / and brackets only. A total or a group sums the counts first, then\n"
      "applies the formula, so its rate is the real one. A count a platform does\n"
      "not report (Meta has no 6-second view) is 0, and a rate over it shows -."),
