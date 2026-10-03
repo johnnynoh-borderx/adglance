@@ -65,6 +65,10 @@ OPTIONS = [
      "The number columns shown, left to right: ids from metrics. null: the\n"
      "platform's own set (TikTok: views and follows; Meta: clicks and completes).\n"
      "H on the screen ticks them and writes this for the account shown."),
+    ("cards", None,
+     "The summary cards on top: metric ids, each the total of what is shown and\n"
+     "its change on the period just before. null: the platform's own (spend and\n"
+     "its key costs); [] for none."),
     ("sort", "-billed",
      "The starting sort: a column id or header; a leading - sorts largest first."),
     ("pin", None,
@@ -305,7 +309,7 @@ def _apply(cfg, mine, problems):
                 cfg["metrics"] = {**cfg["metrics"], **value}
             else:
                 problems.append("metrics: an object of {id: {name, formula, format}}")
-        elif key in ("pin", "show"):
+        elif key in ("pin", "show", "cards"):
             if value is None or isinstance(value, list):
                 cfg[key] = value
             else:

@@ -14,6 +14,9 @@ adglance setup      # add, check and edit accounts later (or A on the screen: + 
   formula, so its CPV is the real one, never an average of averages.
 - **Nothing to set up but a key.** Onboarding asks for the token and the
   account id; names show as they are. Everything else is an option.
+- **A summary on top.** Cards with the total of what is shown -- spend and the
+  platform's key costs -- and the change on the period just before (7d: the 7
+  days before), teal when it got better, peach when worse. `"cards"` picks them.
 - **Columns for the platform.** TikTok starts on views and follows, Meta on
   clicks and completes. `H` lists every column with a search box: tick one,
   or `n` to make a metric from a formula, previewed on what is shown. Ticks

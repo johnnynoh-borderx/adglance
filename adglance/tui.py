@@ -61,7 +61,7 @@ from . import settings
 from .actions import ActionScreen
 from .datepicker import CalendarScreen
 from .store import days, freshness, set_zone, today as account_today
-from .style import (ALL, CHEVRONS, PARTS, compile_formula, evaluate, number, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
+from .style import (ALL, CHEVRONS, PARTS, SYMBOL, compile_formula, evaluate, number, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
                           header_label, matches, ordered, prepare, with_share)
 
 COMMON = ["today", "yesterday", "mtd", "lm", "7d", "14d", "30d"]
@@ -575,6 +575,10 @@ class AdView(App):
     #banner.shown { display: block; }
     Input.invalid { background: #3b2533; color: #f38ba8; }
     #crumbs { display: none; height: 1; margin: 0 0 1 0; }
+    /* the summary: what is shown, summed, and its change on the period before */
+    #cards { height: 4; margin: 0 0 1 0; padding: 0 1; }
+    #cards .card { width: 1fr; max-width: 34; height: 4; padding: 0 2; margin: 0 1 0 0;
+                   background: #181825; border-left: tall #cba6f7; }
     #crumbs.shown { display: block; }
     #crumbs Button { width: auto; min-width: 0; padding: 0 1; margin: 0; background: #181825;
                      color: #b4befe; text-style: none; }
@@ -626,6 +630,7 @@ class AdView(App):
         self.history = [h for h in self.state.get("periods", []) if isinstance(h, str)]
         self.words, self.query_text = list(words), query
         self.raw, self.rows, self.span, self.dates = [], [], "", None
+        self.prev_asked = set()                       # periods-before already asked for
         self.make_layout = layout
         self.layout = layout(self.source)
         self.problem, self.note = None, ""
@@ -698,6 +703,7 @@ class AdView(App):
                 yield Input(value=self.query_text, id="filter", compact=True,
                             placeholder="Filter…")
                 yield Button(self._group_label(), id="group", compact=True)
+        yield Horizontal(id="cards")              # the summary: totals and their change
         yield Horizontal(id="crumbs")             # where a drill-down has gone: All ❯ US ❯ ...
         table = Table(zebra_stripes=True, cursor_type="cell", cell_padding=1)
         # the cursor's cell takes the cursor's colours (its row keeps theirs)
@@ -1284,6 +1290,85 @@ class AdView(App):
             self.view["sorts"] = [list(x) for x in sorts]
             self.save(self.state)
         self._status(self.problem)
+        self._cards()
+
+    # ---- the summary cards -----------------------------------------------------
+    def _before(self):
+        """The period just before the one shown, as long: 7d -> the 7 days before."""
+        if not self.dates:
+            return None
+        start, end = self.dates
+        n = (end - start).days + 1
+        return start - dt.timedelta(days=n), start - dt.timedelta(days=1)
+
+    def _prev_total(self):
+        """What is shown -- the same scope and filter -- summed over the period
+        before; None when its days are not here yet (they are fetched behind)."""
+        before = self._before()
+        if before is None:
+            return None
+        store = self.source["store"]
+        a, b = map(str, before)
+        need = store.missing(a, b)
+        if need:
+            asked = (self.source["key"], a, b)
+            if asked not in self.prev_asked:          # once: a failure is not retried in a loop
+                self.prev_asked.add(asked)
+                self._fetch_before(store, need)
+            return None
+        rows = prepare(store.rows(a, b, False, self.layout.fee), self.layout, store.statuses() or {})
+        query = self.query_one("#filter", Input).value
+        keep = [r for r in rows if self._in_scope(r) and matches(r, query)]
+        return combine(keep, label="TOTAL") if keep else {}
+
+    @work(thread=True, group="before")
+    def _fetch_before(self, store, need):
+        try:
+            store.fetch(need)
+        except Exception:                             # the cards just go without a change
+            log.exception("fetching the period before")
+        self.call_from_thread(self._cards)
+
+    def _cards(self):
+        """One card per summary metric: its total over what is shown, and its
+        change on the period before -- teal when it got better (a cost down, a
+        rate up), peach when worse; green and red stay the targets' verdicts."""
+        box = self.query_one("#cards", Horizontal)
+        cards = self.layout.cards if self.recs else []
+        box.display = bool(cards) and self.size.height >= 28    # a short screen keeps its rows
+        if not box.display:
+            return
+        now = derive(dict(self.recs[0]), cards)
+        prev = self._prev_total()
+        prev = derive(dict(prev), cards) if prev else prev
+        sym = SYMBOL.get(self.source.get("currency", ""), "")
+        n = (self.dates[1] - self.dates[0]).days + 1
+        widgets = []
+        for c in cards:
+            v = now.get(c.key)
+            shown = "–" if v is None else (sym if c.kind in ("money", "cost") else "") + number(v, c.kind)
+            text = Text(f"{c.header}\n", style="#a6adc8")
+            text.append(f"{shown}\n", style="bold #ffffff")
+            p = prev.get(c.key) if prev else None
+            if prev is None:
+                text.append("… the period before", style="#6c7086")
+            elif v is None or not p:
+                text.append(f"– no {n}d before to compare", style="#6c7086")
+            else:
+                change = (v - p) / abs(p)
+                up = change >= 0
+                better = None if c.key == "billed" else (not up if c.kind in ("money", "cost") else up)
+                colour = "#a6adc8" if better is None else ("#94e2d5" if better else "#fab387")
+                text.append(f"{'▲' if up else '▼'} {abs(change) * 100:.1f}%", style=f"bold {colour}")
+                text.append(f"  vs {n}d before", style="#6c7086")
+            widgets.append(text)
+        have = list(box.query(".card"))
+        if len(have) == len(widgets):                 # the same cards: new words, no flicker
+            for card, text in zip(have, widgets):
+                card.update(text)
+        else:
+            box.remove_children()
+            box.mount_all([Static(t, classes="card") for t in widgets])
 
     def _status(self, problem):
         """The line under the detail: a problem first, in red, until it is fixed;

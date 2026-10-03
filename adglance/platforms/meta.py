@@ -33,6 +33,7 @@ ACTIONS = {"likes": "post_reaction", "comments": "comment", "shares": "post", "f
 PROVIDES = {"spend", "billed", "impressions", "clicks", "watch_time", *VIDEO, *ACTIONS}
 # what a Meta account starts with: clicks and completes, not 6-second views
 SHOW = ["billed", "share", "impressions", "cpm", "ctr", "cpc", "cpv", "complete"]
+CARDS = ["billed", "cpm", "ctr", "cpc"]            # the summary on top
 FIELDS = ["ad_id", "ad_name", "adset_name", "campaign_name", "spend", "impressions", "inline_link_clicks",
           "video_avg_time_watched_actions", "actions", *VIDEO.values()]
 

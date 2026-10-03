@@ -230,6 +230,17 @@ class Layout:
             self.catalog.append(Column(mid, m.get("name", mid), kind,
                                        None if kind == "share" else formula))
         self.platform_title = getattr(module, "TITLE", platform)
+        # the summary cards: metrics this platform can work out
+        cards = cfg.get("cards")
+        if cards is None:
+            cards = list(getattr(module, "CARDS", ["billed"]))
+        by_key = {c.key: c for c in self.catalog}
+        self.cards = []
+        for mid in cards if isinstance(cards, list) else []:
+            if mid not in by_key:
+                self.problems.append(f"cards: {mid!r} is not a metric")
+            elif by_key[mid].kind != "share" and self.available(by_key[mid]):
+                self.cards.append(by_key[mid])
         # what is drawn: these keys (n:name for a name column, the id for a
         # metric); the screen replaces it with what h / H picked
         self.default_visible = ({f"n:{c}" for c in self.shown_names}
