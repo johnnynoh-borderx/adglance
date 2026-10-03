@@ -956,7 +956,11 @@ class AdView(App):
             col = list(table.columns).index(f"n:{STATUS}")
         except ValueError:
             return
-        for i, r in enumerate(self.recs):
+        # only the rows on screen: a long table would otherwise rewrite every
+        # Status cell (1,400 of them in a year's Daily) eight times a second
+        top = int(table.scroll_y)
+        for i in range(max(0, top - 1), min(len(self.recs), top + table.size.height + 1)):
+            r = self.recs[i]
             if r and r["names"].get(STATUS) == LOADING:
                 table.update_cell_at(Coordinate(i, col), Text(SPIN[0], style="#cba6f7"))
 

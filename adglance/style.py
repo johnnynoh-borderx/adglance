@@ -66,6 +66,7 @@ _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
 
 
 @functools.lru_cache(maxsize=None)
+@functools.lru_cache(maxsize=512)
 def compile_formula(text):
     """Parse a formula over PARTS (+ - * / and brackets, numbers), or raise
     ValueError saying what is wrong. Arithmetic only -- this is not eval."""
