@@ -2,6 +2,7 @@
 
     adglance                  the screen, on the last period you looked at
     adglance setup            add, check and edit ad accounts (key, label)
+    adglance --version        which version this is
     adglance +show-config --default --docs   every option, with what it does
     adglance +validate-config                check settings.json
     adglance yesterday | mtd | 14d     yesterday, this month, the last N days
@@ -249,6 +250,10 @@ def main(argv=None):
     p.add_argument("--print", action="store_true",
                    help="print the table and exit (the default when output is not a terminal)")
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] in (["--version"], ["-V"]):
+        from . import version
+        print(f"adglance {version()}")
+        return 0
     if argv[:1] == ["setup"]:
         from .setup import run_setup
         run_setup(first=False)

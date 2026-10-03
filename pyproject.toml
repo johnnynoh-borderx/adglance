@@ -1,6 +1,6 @@
 [project]
 name = "adglance"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Every ad's spend at a glance, in the terminal: TikTok and Meta, read-only."
 readme = "README.md"
 license = "MIT"
@@ -11,5 +11,9 @@ dependencies = ["textual>=8.2", "rich>=13", "requests>=2.31"]
 adglance = "adglance.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+# the version is the git history's: v0.1.0 on a tagged commit, 0.1.1.dev3+gc5002fb three after it
+[tool.hatch.version]
+source = "vcs"

@@ -127,7 +127,8 @@ class KeysScreen(ModalScreen):
                 ("q", "dismiss", "Close")]
 
     def compose(self):
-        out = Text("esc or ? closes\n\n", style="#7f849c")   # on top: never scrolled away
+        from . import version
+        out = Text(f"adglance {version()}  ·  esc or ? closes\n\n", style="#7f849c")   # on top: never scrolled away
         for i, (section, keys) in enumerate(KEYS):
             out.append(("\n" if i else "") + section + "\n", style="bold #cba6f7")
             for key, what in keys:
