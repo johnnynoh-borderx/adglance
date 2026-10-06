@@ -61,6 +61,9 @@ OPTIONS = [
      "metrics are formulas over billed. 1.15 adds an agency fee of 15%; 1 is the\n"
      "spend as the platform reports it. A formula that wants the raw spend uses\n"
      "spend. e.g. 1.15"),
+    ("columns", None,
+     "The name columns shown, left to right (Geo, Content, Campaign ...). null:\n"
+     "the names' own (see names.columns). The screen writes it: H, h, shift+arrows."),
     ("show", None,
      "The number columns shown, left to right: ids from metrics. null: the\n"
      "platform's own set (TikTok: views and follows; Meta: clicks and completes).\n"
@@ -74,7 +77,11 @@ OPTIONS = [
      "Video views, Engagement, Traffic): {\"name\": [metric ids]}. The same name\n"
      "replaces one of the platform's."),
     ("sort", "-billed",
-     "The starting sort: a column id or header; a leading - sorts largest first."),
+     "The sort: a column id or header, a leading - for largest first; a list for\n"
+     "tie-breakers, e.g. [\"objective\", \"-cpf\"]. s and S on the screen write it."),
+    ("group", [],
+     "Rows merged by these name columns, e.g. [\"geo\", \"objective\"], or [\"All\"].\n"
+     "1 2 3, g and G on the screen write it."),
     ("pin", None,
      "Name columns kept in view while a wide table scrolls sideways. null pins\n"
      "every name column but status. F on the screen picks them too."),
@@ -314,7 +321,12 @@ def _apply(cfg, mine, problems):
                 cfg["metrics"] = {**cfg["metrics"], **value}
             else:
                 problems.append("metrics: an object of {id: {name, formula, format}}")
-        elif key in ("pin", "show", "cards"):
+        elif key == "sort":
+            if isinstance(value, str) or (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+                cfg[key] = value
+            else:
+                problems.append("sort: a column, or a list of them")
+        elif key in ("pin", "show", "cards", "columns"):
             if value is None or isinstance(value, list):
                 cfg[key] = value
             else:

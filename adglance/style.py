@@ -172,6 +172,19 @@ class Layout:
         # the short header each column shows under; its name stays the mart's
         raw = dict(RAW, adgroup_name="Ad set" if platform == "meta" else "Ad group")
         self.labels = {DATE: "Date", **{c: c for c in self.names}, **raw, **(spec.get("labels") or {})}
+        # the name columns shown, in order: the settings' columns (which the
+        # screen writes) over what the names give
+        chosen = cfg.get("columns")
+        if isinstance(chosen, list):
+            shown = []
+            for word in chosen:
+                col = self.column(str(word))
+                if col in self.names and col not in shown:
+                    shown.append(col)
+                else:
+                    self.problems.append(f"columns: {word!r} is not a name column")
+            self.shown_names = shown
+            self.names[:] = shown + [c for c in self.names if c not in shown]
         # the columns cut from the ad name, drawn bright -- what the row is about
         self.from_ad = {g for p in self.patterns["ad"] for g in p.groupindex} | {"ad_name"}
         self._cut = functools.lru_cache(maxsize=None)(self._cut_uncached)
@@ -264,11 +277,17 @@ class Layout:
         self.default_visible = ({f"n:{c}" for c in self.shown_names}
                                 | {c.key for c in self.catalog if c.key in show})
         self.visible = set(self.default_visible)
+        # the sort: [(key, largest first)], the first deciding, the rest breaking ties
         sort = cfg.get("sort", "-billed")
-        key = self.key_of(sort.lstrip("-"))
-        if not key:
-            self.problems.append(f"sort: {sort!r} is not a column")
-        self.sort = (key or "billed", sort.startswith("-") if key else True)
+        self.sorts = []
+        for word in ([sort] if isinstance(sort, str) else sort):
+            key = self.key_of(word.lstrip("-"))
+            if not key:
+                self.problems.append(f"sort: {word!r} is not a column")
+            elif key not in [k for k, _ in self.sorts]:
+                self.sorts.append((key, word.startswith("-")))
+        self.sorts = self.sorts or [("billed", True)]
+        self.sort = self.sorts[0]
         ICONS["on"] = bool(cfg.get("icons", True))
         VALUE.clear()
         colors = cfg.get("colors", {})
@@ -278,6 +297,11 @@ class Layout:
             else:
                 self.problems.append(f"colors.{value}: {hue!r} -- use one of {', '.join(HUES)}")
         self.targets = self._targets(cfg.get("targets", []))
+        group = cfg.get("group") or []
+        self.group = self.parse_group("+".join(map(str, group))) if isinstance(group, list) else None
+        if self.group is None:
+            self.problems.append(f"group: {group!r} -- name columns, or [\"All\"]")
+            self.group = ()
         self.fee = float(cfg.get("fee", 1))           # billed = spend x fee, for every cost
         HIGHLIGHT.clear()
         highlight = cfg.get("highlight", [])

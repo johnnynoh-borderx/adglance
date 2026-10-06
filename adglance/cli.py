@@ -213,7 +213,7 @@ def table(words, console, layout, src, search="", sort=None, by=(), daily=False,
     shown = with_share([derive(dict(r), layout.metrics) for r in group(recs, by)], total["billed"])
     # [(key, reverse), ...]: the first decides, the rest break ties (sorted last
     # first, each sort stable, so the first wins)
-    for key, reverse in reversed(sort or [(f"n:{DATE}", False) if daily else layout.sort]):
+    for key, reverse in reversed(sort or ([(f"n:{DATE}", False)] if daily else layout.sorts)):
         shown = ordered(shown, "billed" if key == "share" else key, reverse)
     cols = layout.columns(shown, by, daily)
     words_shown = f"  ·  '{search}'" if search.split() else ""
@@ -323,7 +323,7 @@ def main(argv=None):
         return 0
     for problem in lay.problems:                   # said, then carry on with the rest
         errors.print(f"[yellow]!! {problem}[/]")
-    by = by or ()
+    by = lay.group if by is None else by            # the account's grouping, unless --group
     try:
         while True:
             # --watch N fetches the unsettled days at least every N seconds

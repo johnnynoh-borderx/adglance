@@ -53,6 +53,7 @@ from textual.screen import ModalScreen
 from textual.suggester import SuggestFromList
 from textual.theme import Theme
 from textual.widgets import (Button, DataTable, Footer, Input, OptionList, Select, SelectionList,
+                             TabbedContent, TabPane,
                              Static)
 from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
@@ -102,16 +103,19 @@ KEYS = [
                       ("enter", "open: a group (❯ marks one) goes a level in; an ad, its menu"),
                       ("esc", "back: clears the filter first, then goes up a level"),
                       ("ctrl + c", "copy the cursor's cell, as shown"),
-                      ("s  /  S", "sort by the cursor's column (again: flip)  /  the sort panel"),
+                      ("s", "sort by the cursor's column (again: flip)"),
                       ("/", "filter: every word must match; -word drops (-ca drops CA)")]),
     ("Period", [("t  y  w  m  l", "Today · Yesterday · 7d · MTD · Last month"),
                 ("[  ]", "the window just before / after"),
                 ("p  /  c", "type a period (2026-10-01, 7d, lm)  /  the calendar")]),
-    ("View", [("g  /  G", "grouping off and back on  /  tick the columns to group by"),
+    ("View", [("g", "grouping off and back on"),
               ("d", "Daily: one row a day, or the period summed"),
-              ("h  /  H", "hide the cursor's column  /  every column: search, tick, n a new metric"),
+              ("h", "hide the cursor's column"),
               ("shift + ← →", "move the cursor's column (names among names, metrics among metrics)"),
-              ("f  /  F", "pinned columns off and on  /  pick which")]),
+              ("f", "pinned columns off and on")]),
+    ("Options: one window, saved to this account's file", [
+              ("H  S  G  F", "open it on Columns  /  Sort  /  Group  /  Pins (Cards: [ ])"),
+              ("", "Columns: sets, search, space tick, shift+↑↓ move, n new metric, r reset")]),
     ("Data", [("r  /  R", "refresh the last 30 days  /  every day of this period"),
               ("a  /  A", "the next ad account  /  the list (its last row adds one)"),
               (",", "this account's own options in $EDITOR (over the defaults)"),
@@ -194,200 +198,391 @@ class Table(DataTable):
 SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹"
 
 
-class SortScreen(ModalScreen):
-    """O: the sort now, on top, and every column shown below to change it.
-    enter  sort by that column alone        + / space  add it as the next key
-           (again: the other way)                      (already in: flip it)
-    x      take it out                      esc / O    close
-    Each change shows on the table behind at once."""
-    DEFAULT_CSS = """
-    SortScreen { align: center middle; background: #11111b 40%; }
-    SortScreen > Vertical { width: auto; height: auto; padding: 1 2;
-                            background: #181825; border: round #cba6f7; }
-    SortScreen .title { color: #cba6f7; text-style: bold; }
-    SortScreen #now { color: #cdd6f4; margin: 0 0 1 0; }
-    SortScreen OptionList { background: #181825; border: none; height: auto; width: 36; }
-    SortScreen OptionList:focus { border: none; background-tint: transparent; }
-    SortScreen OptionList > .option-list--option-highlighted,
-    SortScreen OptionList:focus > .option-list--option-highlighted { background: #313244; }
-    SortScreen .hint { color: #7f849c; margin: 1 0 0 0; }
-    """
-    BINDINGS = [("escape", "dismiss", "Close"),
-                Binding("space", "add", show=False),
-                Binding("x", "remove", show=False)]
+class Pane(Vertical):
+    """One tab of the options window; reload() redraws it from the app's state now."""
 
-    def __init__(self, view, choices):
-        super().__init__()
-        self.view, self.choices = view, choices        # [(label, key)] in column order
+    def reload(self):
+        pass
+
+    def first(self):
+        """What takes the focus when the tab opens."""
+        return self
+
+
+class ColumnsPane(Pane):
+    """Every column, ticked when shown and in the table's order: shown names,
+    hidden names, then shown numbers, hidden numbers. Pick a set, tick, move."""
+    BINDINGS = [Binding("r", "reset", show=False), Binding("n", "new", show=False),
+                Binding("shift+up", "move(-1)", show=False), Binding("shift+down", "move(1)", show=False)]
 
     def compose(self):
-        with Vertical():
-            yield Static("Sort by", classes="title")
-            yield Static("", id="now")
-            yield OptionList()
-            yield Static("enter  only this\nspace  add, or flip\nx  take out  ·  esc  close",
-                         classes="hint")
+        yield Horizontal(id="presets")
+        yield Input(placeholder="Search columns…  (cpv, click, complete…)", id="q")
+        yield SelectionList(id="cols")
+        yield Static("space tick  ·  shift+↑↓ move  ·  n new metric  ·  r reset\n"
+                     "names first, then numbers  ·  saved for this account as you go", classes="hint")
 
-    def on_mount(self):
+    def first(self):
+        return self.query_one("#q")
+
+    def reload(self, keep=None):
+        app = self.app
+        lay = app.layout
+        self.presets = lay.presets
+        box = self.query_one("#presets", Horizontal)
+        if len(box.children) != len(self.presets):
+            box.remove_children()
+            box.mount_all([Button(name, id=f"preset-{i}", compact=True, classes="preset")
+                           for i, name in enumerate(self.presets)])
+        names = [c for c in lay.names]
+        shown_names = [c for c in names if f"n:{c}" in lay.visible]
+        metrics = list(lay.catalog)
+        shown_metrics = [c for c in metrics if c.key in lay.visible]
+        rows = []
+        for c in shown_names + [c for c in names if c not in shown_names]:
+            rows.append((f"n:{c}", lay.label(c), "name", True))
+        for c in shown_metrics + [c for c in metrics if c not in shown_metrics and lay.available(c)] \
+                + [c for c in metrics if not lay.available(c)]:
+            ok = lay.available(c)
+            what = c.formula or "part of the spend shown"
+            rows.append((c.key, c.header, what if ok else f"{what}  · not on {lay.platform_title}", ok))
+        self.rows = rows
+        self.shown = set(lay.visible)
+        self.order = [c.key for c in shown_metrics]
+        self._fill(keep)
+        self._light()
+
+    def _fill(self, keep=None):
+        box = self.query_one("#cols", SelectionList)
+        at = keep or (box.get_option_at_index(box.highlighted).value
+                      if box.highlighted is not None and box.option_count else None)
+        words = self.query_one("#q", Input).value.lower().split()
+        box.clear_options()
+        for key, label, what, available in self.rows:
+            if words and not all(w in f"{key} {label} {what}".lower() for w in words):
+                continue
+            text = Text(f"{label:<16}", style="" if available else "#6c7086")
+            text.append(what, style="#7f849c" if available else "#9399b2 italic")
+            box.add_option(Selection(text, key, key in self.shown, disabled=not available))
+        if at is not None:
+            for i in range(box.option_count):
+                if box.get_option_at_index(i).value == at:
+                    box.highlighted = i
+                    break
+
+    def _light(self):
+        """The set the number columns are now, lit -- whatever their order."""
+        for i, ids in enumerate(self.presets.values()):
+            for b in self.query(f"#preset-{i}"):
+                b.set_class(set(ids) == set(self.order), "on")
+
+    def on_input_changed(self, event):
+        if event.input.id == "q":
+            self._fill()
+            event.stop()
+
+    def on_input_submitted(self, event):
+        self._to_list()
+        event.stop()
+
+    def on_key(self, event):
+        if event.key == "down" and self.screen.focused is self.query_one("#q"):
+            self._to_list()
+            event.stop()
+
+    def _to_list(self):
+        box = self.query_one("#cols", SelectionList)
+        box.focus()
+        if box.highlighted is None and box.option_count:
+            box.highlighted = 0
+
+    def on_button_pressed(self, event):
+        bid = event.button.id or ""
+        if bid.startswith("preset-"):
+            self.app._write_show(list(self.presets.values())[int(bid.removeprefix("preset-"))])
+            self.reload()
+            event.stop()
+
+    def on_selection_list_selection_toggled(self, event):
+        key = event.selection.value
+        shown = set(self.shown) ^ {key}
+        if not shown:                                 # the last column stays
+            self.query_one("#cols", SelectionList).select(key)
+            return
+        self.app._set_visible(shown)
+        self.reload(keep=key)
+
+    def _key(self):
+        box = self.query_one("#cols", SelectionList)
+        return box.get_option_at_index(box.highlighted).value if box.highlighted is not None else None
+
+    def action_move(self, step):
+        key = self._key()
+        if key is None:
+            return
+        if self.query_one("#q", Input).value.strip():
+            self.app.notify("clear the search to move columns: their order is the whole list's", timeout=3)
+            return
+        if key not in self.shown:
+            self.app.notify("tick it first: only shown columns have a place", timeout=2)
+            return
+        if self.app.move_column(key, step):
+            self.reload(keep=key)
+
+    def action_reset(self):
+        self.app._reset_view()
+        self.reload()
+
+    def action_new(self):
+        self.app._new_metric(after=self.reload)
+
+
+class SortPane(Pane):
+    """The sort now, numbered, and every column shown to change it: enter sorts
+    by one alone, space adds it as the next key (or flips it), x takes it out."""
+    BINDINGS = [Binding("space", "add", show=False), Binding("x", "remove", show=False)]
+
+    def compose(self):
+        yield Static("", id="now")
+        yield OptionList(id="sorts")
+        yield Static("enter  sort by this alone  ·  space  add as a tie-breaker, or flip  ·  x  remove",
+                     classes="hint")
+
+    def first(self):
+        return self.query_one("#sorts")
+
+    def reload(self):
+        app = self.app
+        cols = getattr(app, "shown_cols", [])
+        self.choices = [(header_label(c, app.layout.limits, app.source.get("currency", "")), c.key)
+                        for c in cols]
         self._fill()
-        options = self.query_one(OptionList)
-        options.focus()
+        options = self.query_one("#sorts", OptionList)
         keys = [k for _, k in self.choices]
-        here = self.view.cur_key if self.view.cur_key in keys else self.view.sort_key
-        if here in keys:                              # opens on the cursor's column
+        here = app.cur_key if app.cur_key in keys else app.sort_key
+        if here in keys and options.highlighted is None:
             options.highlighted = keys.index(here)
 
     def _fill(self):
-        """The sort now (numbered) and the columns, each marked with its place."""
-        order = self.view._sort_order()
+        order = self.app._sort_order()
         labels = dict((k, label) for label, k in self.choices)
         now = Text()
         for key, (place, rev) in sorted(order.items(), key=lambda kv: kv[1][0]):
             now.append(f"{place}. ", style="#7f849c")
-            now.append(f"{labels.get(key, key).strip()} {'↓' if rev else '↑'}\n", style="bold #cba6f7")
+            now.append(f"{labels.get(key, key).strip()} {'↓' if rev else '↑'}   ", style="bold #cba6f7")
         self.query_one("#now", Static).update(now)
-        options = self.query_one(OptionList)
+        options = self.query_one("#sorts", OptionList)
         at = options.highlighted
         options.clear_options()
         for label, key in self.choices:
             mark = (f"  {'↓' if order[key][1] else '↑'}{order[key][0]}" if key in order else "")
             options.add_option(Option(Text.assemble(label, (mark, "bold #cba6f7")), id=key))
-        if at is not None:
+        if at is not None and at < options.option_count:
             options.highlighted = at
 
     def _key(self):
-        options = self.query_one(OptionList)
+        options = self.query_one("#sorts", OptionList)
         return None if options.highlighted is None else options.get_option_at_index(options.highlighted).id
 
     def on_option_list_option_selected(self, event):
-        self.view._sort_by(event.option.id)
+        self.app._sort_by(event.option.id)
         self._fill()
+        event.stop()
 
     def action_add(self):
         if self._key():
-            self.view.sort_add(self._key())
+            self.app.sort_add(self._key())
             self._fill()
 
     def action_remove(self):
         if self._key():
-            self.view.sort_remove(self._key())
+            self.app.sort_remove(self._key())
             self._fill()
 
 
-class ColumnsScreen(ModalScreen):
-    """H: every column there is, ticked when shown, with a search on top. A
-    tick applies at once; the number columns are written to the account's own
-    file (show). n makes a new metric; r puts back the settings' columns."""
-    DEFAULT_CSS = """
-    ColumnsScreen { align: center middle; background: #11111b 40%; }
-    ColumnsScreen > Vertical { width: 84; max-width: 96%; height: auto; max-height: 90%; padding: 1 2;
-                               background: #181825; border: round #cba6f7; }
-    ColumnsScreen .title { color: #cba6f7; text-style: bold; margin: 0 0 1 0; }
-    ColumnsScreen #q { margin: 0 0 1 0; }
-    ColumnsScreen #presets { height: 1; margin: 0 0 1 0; }
-    ColumnsScreen .preset { width: auto; min-width: 0; padding: 0 1; margin: 0 1 0 0;
-                            background: #313244; color: #cdd6f4; text-style: none; }
-    ColumnsScreen .preset:hover { background: #45475a; }
-    ColumnsScreen .preset.on { background: #cba6f7; color: #11111b; text-style: bold; }
-    ColumnsScreen SelectionList { background: #181825; border: none; height: auto;
-                                  max-height: 22; width: 100%; }
-    ColumnsScreen SelectionList:focus { border: none; background-tint: transparent; }
-    ColumnsScreen .hint { color: #7f849c; margin: 1 0 0 0; }
-    """
-    BINDINGS = [("escape", "dismiss", "Close"), ("H", "dismiss", "Close"),
-                Binding("r", "defaults", show=False), Binding("n", "new", show=False)]
-
-    def __init__(self, title, columns, visible, on_change, on_reset, on_new, presets=None,
-                 shown_order=None, on_preset=None):
-        """columns: [(key, label, what it is, available)]; presets: {name: [metric ids]}"""
-        super().__init__()
-        self.title_text, self.choices, self.shown = title, columns, set(visible)
-        self.on_change, self.on_reset, self.on_new = on_change, on_reset, on_new
-        self.presets, self.order, self.on_preset = presets or {}, list(shown_order or []), on_preset
+class TickPane(Pane):
+    """A tick list of name columns (group, pins)."""
+    TITLE = ""
 
     def compose(self):
-        with Vertical():
-            yield Static(self.title_text, classes="title")
-            if self.presets:                          # a whole set at once, by what the campaign is for
-                with Horizontal(id="presets"):
-                    for i, name in enumerate(self.presets):
-                        yield Button(name, id=f"preset-{i}", compact=True, classes="preset")
-            yield Input(placeholder="Search columns…  (cpv, click, complete…)", id="q")
-            yield SelectionList()
-            yield Static("↓ results  ·  space tick  ·  n new  ·  r reset  ·  esc close\n"
-                         "saved for this account as you tick", classes="hint")
+        yield Static(self.TITLE, classes="hint")
+        yield SelectionList(id="ticks")
 
-    def on_mount(self):
-        self._fill("")
-        self._light()
-        self.query_one("#q").focus()
+    def first(self):
+        return self.query_one("#ticks")
 
-    def _light(self):
-        """The set the columns are now, lit."""
-        for i, ids in enumerate(self.presets.values()):
-            self.query_one(f"#preset-{i}", Button).set_class(ids == self.order, "on")
+    def items(self):
+        return []
 
-    def on_button_pressed(self, event):
-        bid = event.button.id or ""
-        if bid.startswith("preset-") and self.on_preset:
-            ids = list(self.presets.values())[int(bid.removeprefix("preset-"))]
-            self.on_preset(ids)
-            self.shown = {k for k in self.shown if k.startswith("n:")} | set(ids)
-            self.order = list(ids)
-            self._fill(self.query_one("#q", Input).value)
-            self._light()
-
-    def _fill(self, query):
-        words = query.lower().split()
-        box = self.query_one(SelectionList)
+    def reload(self):
+        box = self.query_one("#ticks", SelectionList)
         box.clear_options()
-        for key, label, what, available in self.choices:
-            hay = f"{key} {label} {what}".lower()
-            if words and not all(w in hay for w in words):
-                continue
-            text = Text(f"{label:<16}", style="" if available else "#6c7086")
-            text.append(what, style="#7f849c" if available else "#9399b2 italic")
-            box.add_option(Selection(text, key, key in self.shown, disabled=not available))
+        for label, value, on in self.items():
+            box.add_option(Selection(label, value, on))
+        if box.option_count and box.highlighted is None:
+            box.highlighted = 0
 
-    def on_input_changed(self, event):
-        if event.input.id == "q":
-            self._fill(event.value)
 
-    def _to_list(self):
-        box = self.query_one(SelectionList)
-        box.focus()
-        if box.highlighted is None and box.option_count:
-            box.highlighted = 0                       # space ticks the first match at once
+class GroupPane(TickPane):
+    """Rows merged by the columns ticked, or All; 1 2 3 on the table are the levels."""
+    TITLE = "Merge rows by the columns ticked (All: one row). 1 2 3 on the table: campaigns, ad groups, ads."
 
-    def on_input_submitted(self, event):
-        self._to_list()
+    def items(self):
+        lay, by = self.app.layout, set(self.app.by)
+        return ([(lay.label(n), n, n in by) for n in lay.names]
+                + [("All (one row)", ALL, ALL in by)])
 
-    def on_key(self, event):
-        if event.key == "down" and self.focused is self.query_one("#q"):
-            self._to_list()
-            event.stop()
+    def on_selection_list_selection_toggled(self, event):
+        """All and the columns exclude each other: ticking one clears the other."""
+        picks = self.query_one("#ticks", SelectionList)
+        value = event.selection.value
+        if value in picks.selected:
+            if value == ALL:
+                for n in self.app.layout.names:
+                    picks.deselect(n)
+            else:
+                picks.deselect(ALL)
+        self.app._set_group(self.app.layout.ordered_group(list(picks.selected)))
+
+
+class PinsPane(TickPane):
+    """Name columns kept in view on the left while the table scrolls sideways."""
+    TITLE = "Kept in view on the left while a wide table scrolls sideways. f on the table: pins off / on."
+
+    def items(self):
+        lay, pin = self.app.layout, set(self.app.pin)
+        return [(lay.label(n), n, n in pin) for n in lay.names]
+
+    def on_selection_list_selection_toggled(self, event):
+        self.app._set_pin(list(self.query_one("#ticks", SelectionList).selected), True)
+
+
+class CardsPane(Pane):
+    """The summary cards on top: tick the metrics, shift+↑↓ to order them."""
+    BINDINGS = [Binding("shift+up", "move(-1)", show=False), Binding("shift+down", "move(1)", show=False)]
+
+    def compose(self):
+        yield Static("The cards on top: each the total of what is shown and its change on the\n"
+                     "period before. space tick  ·  shift+↑↓ move", classes="hint")
+        yield SelectionList(id="cardlist")
+
+    def first(self):
+        return self.query_one("#cardlist")
+
+    def reload(self, keep=None):
+        lay = self.app.layout
+        self.cards = [c.key for c in lay.cards]
+        rest = [c for c in lay.catalog if c.key not in self.cards and c.kind != "share" and lay.available(c)]
+        box = self.query_one("#cardlist", SelectionList)
+        box.clear_options()
+        by_key = {c.key: c for c in lay.catalog}
+        for c in [by_key[k] for k in self.cards] + rest:
+            box.add_option(Selection(f"{c.header:<16}{c.formula or ''}", c.key, c.key in self.cards))
+        for i in range(box.option_count):
+            if box.get_option_at_index(i).value == keep:
+                box.highlighted = i
+
+    def _save(self, cards, keep):
+        self.app._write("cards", cards, rebuild=True)
+        self.reload(keep)
 
     def on_selection_list_selection_toggled(self, event):
         key = event.selection.value
-        self.shown ^= {key}
-        if not self.shown:                            # the last column stays
-            self.shown.add(key)
-            self.query_one(SelectionList).select(key)
+        cards = [k for k in self.cards if k != key] if key in self.cards else self.cards + [key]
+        self._save(cards, key)
+
+    def action_move(self, step):
+        box = self.query_one("#cardlist", SelectionList)
+        if box.highlighted is None:
             return
-        self.on_change(set(self.shown))
-        if not key.startswith("n:"):                  # a number column: the set it now matches, lit
-            self.order = ([k for k in self.order if k != key] if key not in self.shown
-                          else self.order + [key])
-            if self.presets:
-                self._light()
+        key = box.get_option_at_index(box.highlighted).value
+        if key not in self.cards:
+            return
+        i, cards = self.cards.index(key), list(self.cards)
+        j = i + step
+        if 0 <= j < len(cards):
+            cards[i], cards[j] = cards[j], cards[i]
+            self._save(cards, key)
 
-    def action_defaults(self):
-        self.dismiss()
-        self.on_reset()
 
-    def action_new(self):
-        self.dismiss()
-        self.on_new()
+class OptionsScreen(ModalScreen):
+    """How this account is seen, in one window: Columns, Sort, Group, Pins,
+    Cards. H S G F open it on their tab, and switch tabs inside it. Every
+    change applies at once and is written to the account's own file."""
+    DEFAULT_CSS = """
+    OptionsScreen { align: center middle; background: #11111b 40%; }
+    OptionsScreen > Vertical { width: 90; max-width: 96%; height: 86%; padding: 1 2;
+                               background: #181825; border: round #cba6f7; }
+    OptionsScreen .o-title { color: #cba6f7; text-style: bold; margin: 0 0 1 0; }
+    OptionsScreen TabbedContent { height: 1fr; }
+    OptionsScreen ContentSwitcher { height: 1fr; }
+    OptionsScreen TabPane { padding: 1 0 0 0; height: 1fr; }
+    OptionsScreen Pane { height: 1fr; }               /* a tab fills the window: lists filled later still show */
+    OptionsScreen SelectionList, OptionsScreen OptionList { background: #181825; border: none;
+                                                            height: auto; max-height: 22; width: 100%; }
+    OptionsScreen SelectionList:focus, OptionsScreen OptionList:focus { border: none; background-tint: transparent; }
+    OptionsScreen OptionList > .option-list--option-highlighted,
+    OptionsScreen OptionList:focus > .option-list--option-highlighted { background: #313244; }
+    OptionsScreen .hint { color: #7f849c; margin: 1 0 0 0; }
+    OptionsScreen #q { margin: 0 0 1 0; }
+    OptionsScreen #now { color: #cdd6f4; margin: 0 0 1 0; }
+    OptionsScreen #presets { height: 1; margin: 0 0 1 0; }
+    OptionsScreen .preset { width: auto; min-width: 0; padding: 0 1; margin: 0 1 0 0;
+                            background: #313244; color: #cdd6f4; text-style: none; }
+    OptionsScreen .preset:hover { background: #45475a; }
+    OptionsScreen .preset.on { background: #cba6f7; color: #11111b; text-style: bold; }
+    OptionsScreen .o-keys { color: #6c7086; }
+    """
+    TABS = [("columns", "Columns", "H", ColumnsPane), ("sort", "Sort", "S", SortPane),
+            ("group", "Group", "G", GroupPane), ("pins", "Pins", "F", PinsPane),
+            ("cards", "Cards", "", CardsPane)]
+    BINDINGS = [("escape", "dismiss", "Close"),
+                Binding("H", "tab('columns')", show=False), Binding("S", "tab('sort')", show=False),
+                Binding("G", "tab('group')", show=False), Binding("F", "tab('pins')", show=False),
+                Binding("left_square_bracket", "step(-1)", show=False),
+                Binding("right_square_bracket", "step(1)", show=False)]
+
+    def __init__(self, tab="columns"):
+        super().__init__()
+        self.tab = tab
+
+    def compose(self):
+        with Vertical():
+            yield Static(f"Options  ·  {self.app.source['label']}", classes="o-title")
+            with TabbedContent(initial=self.tab):
+                for tid, title, key, pane in self.TABS:
+                    with TabPane(f"{title} {key}".strip(), id=tid):
+                        yield pane(id=f"pane-{tid}")
+            yield Static("H S G F  a tab  ·  [ ]  previous / next  ·  esc  close  ·  "
+                         "everything here is the account's own file (,)", classes="o-keys")
+
+    def on_mount(self):
+        for tab in self.query(TabPane):               # textual's own TabPane rule outranks a stylesheet's
+            tab.styles.height = "1fr"
+        self._open(self.tab)
+
+    def _open(self, tid):
+        pane = self.query_one(f"#pane-{tid}", Pane)
+        pane.reload()
+
+        def focus():
+            if self.query_one(TabbedContent).active == tid:     # still this tab
+                pane.first().focus()
+        self.call_after_refresh(focus)
+
+    def on_tabbed_content_tab_activated(self, event):
+        self._open(event.pane.id)
+
+    def action_tab(self, tid):
+        # let go of the focus first: textual brings back the tab holding the
+        # focused widget, so a search box left focused would win the tab back
+        self.set_focus(None)
+        self.query_one(TabbedContent).active = tid
+
+    def action_step(self, n):
+        ids = [t[0] for t in self.TABS]
+        now = self.query_one(TabbedContent).active
+        self.action_tab(ids[(ids.index(now) + n) % len(ids)])
 
 
 class MetricScreen(ModalScreen):
@@ -481,81 +676,6 @@ class MetricScreen(ModalScreen):
             return
         self.dismiss()
         self.on_save(*got)
-
-
-class PinScreen(ModalScreen):
-    """F: tick the name columns to pin on the left; each tick applies at once."""
-    DEFAULT_CSS = """
-    PinScreen { align: center middle; background: #11111b 40%; }
-    PinScreen > Vertical { width: auto; height: auto; padding: 1 2;
-                           background: #181825; border: round #cba6f7; }
-    PinScreen .title { color: #cba6f7; text-style: bold; margin: 0 0 1 0; }
-    PinScreen SelectionList { background: #181825; border: none; height: auto; width: 30; }
-    PinScreen SelectionList:focus { border: none; background-tint: transparent; }
-    PinScreen .hint { color: #7f849c; margin: 1 0 0 0; }
-    """
-    BINDINGS = [("escape", "dismiss", "Close"), ("F", "dismiss", "Close")]
-
-    def __init__(self, names, labels, pinned, on_change):
-        super().__init__()
-        self.names, self.labels, self.pinned, self.on_change = names, labels, set(pinned), on_change
-
-    def compose(self):
-        with Vertical():
-            yield Static("Pin on the left", classes="title")
-            yield SelectionList(*[Selection(self.labels.get(n, n), n, n in self.pinned)
-                                  for n in self.names])
-            yield Static("space · enter · click ticks\nkept for next time  ·  esc closes",
-                         classes="hint")
-
-    def on_mount(self):
-        self.query_one(SelectionList).focus()
-
-    def on_selection_list_selection_toggled(self, event):
-        self.on_change(list(self.query_one(SelectionList).selected))
-
-
-class GroupScreen(ModalScreen):
-    """Tick the name columns to group by, or All. Each tick regroups the table
-    behind the list at once (on_change); esc, g or G closes it."""
-    DEFAULT_CSS = """
-    GroupScreen { align: center middle; background: #11111b 40%; }
-    GroupScreen > Vertical { width: auto; height: auto; padding: 1 2;
-                             background: #181825; border: round #cba6f7; }
-    GroupScreen .title { color: #cba6f7; text-style: bold; margin: 0 0 1 0; }
-    GroupScreen SelectionList { background: #181825; border: none; height: auto;
-                                width: 34; padding: 0; }
-    GroupScreen SelectionList:focus { border: none; background-tint: transparent; }
-    GroupScreen .hint { color: #7f849c; margin: 1 0 0 0; }
-    """
-    BINDINGS = [("escape", "dismiss", "Close"), ("g", "dismiss", "Close"), ("G", "dismiss", "Close")]
-
-    def __init__(self, names, labels, by, on_change):
-        super().__init__()
-        self.names, self.labels, self.by, self.on_change = names, labels, set(by), on_change
-
-    def compose(self):
-        with Vertical():
-            yield Static(f"{icon('group')}Group by", classes="title")
-            items = [Selection(self.labels.get(n, n), n, n in self.by) for n in self.names]
-            items.append(Selection("All (one row)", ALL, ALL in self.by))
-            yield SelectionList(*items)
-            yield Static("space · enter · click ticks\nesc closes", classes="hint")
-
-    def on_mount(self):
-        self.query_one(SelectionList).focus()
-
-    def on_selection_list_selection_toggled(self, event):
-        """All and the columns exclude each other: ticking one clears the other."""
-        picks = self.query_one(SelectionList)
-        value = event.selection.value
-        if value in picks.selected:
-            if value == ALL:
-                for n in self.names:
-                    picks.deselect(n)
-            else:
-                picks.deselect(ALL)
-        self.on_change(list(picks.selected))
 
 
 class AdView(App):
@@ -1164,25 +1284,13 @@ class AdView(App):
 
     def _restore_view(self):
         """This account's remembered view over its settings."""
-        self._apply_visible()
-        self.sort_key, self.reverse = self.layout.sort
-        # the sort after the first: [(key, reverse), ...], set in S; remembered
-        self.then = []
-        remembered = self.view.get("sorts")
-        if isinstance(remembered, list) and remembered:
-            try:
-                keys = [(str(k), bool(r)) for k, r in remembered]
-                self.sort_key, self.reverse = keys[0]
-                self.then = keys[1:]
-            except (TypeError, ValueError):
-                pass
-        # the grouping: name columns ticked, (ALL,) for everything, () for none
-        self.by = self.layout.parse_group("+".join(self.view.get("by") or [])) or ()
+        # how the account is seen is its own file: the sort, the grouping and
+        # the pins as last set; the view only keeps what g goes back to and
+        # whether pins are on
+        (self.sort_key, self.reverse), self.then = self.layout.sorts[0], list(self.layout.sorts[1:])
+        self.by = tuple(self.layout.group)
         self.last_by = self.layout.parse_group("+".join(self.view.get("last_by") or [])) or self.by
-        # pinned columns: what F picked (remembered), else the settings' pin
-        picked = self.view.get("pin")
-        self.pin = ([c for c in picked if c in self.layout.names] if isinstance(picked, list)
-                    else list(self.layout.pin))
+        self.pin = list(self.layout.pin)
         self.pin_on = bool(self.view.get("pin_on", True))
 
     def action_reload(self):
@@ -1342,10 +1450,6 @@ class AdView(App):
         names = {c.key: c.header for c in every}       # hidden by a scroll, still the sort
         self.sort_header = " · ".join(f"{names.get(k, k)} {'↓' if r else '↑'}"
                                       for k, r in self._sorts(set(names)))
-        sorts = self._sorts()
-        if self.view.get("sorts") != [list(x) for x in sorts]:       # remembered for next time
-            self.view["sorts"] = [list(x) for x in sorts]
-            self.save(self.state)
         self._status(self.problem)
         self._cards()
 
@@ -1588,12 +1692,8 @@ class AdView(App):
             self._sort_by(self.cur_key)
 
     def action_pick_sort(self):
-        """O: every column shown, to pick the sort from (past the tenth too)."""
-        cols = getattr(self, "shown_cols", [])
-        limits = self.layout.limits
-        currency = self.source.get("currency", "")
-        choices = [(header_label(c, limits, currency), c.key) for c in cols]
-        self.push_screen(SortScreen(self, choices))
+        """S: the options window on Sort."""
+        self.push_screen(OptionsScreen("sort"))
 
     def _natural(self, key):
         """A column's first direction: costs cheapest first -- a money column that
@@ -1604,6 +1704,26 @@ class AdView(App):
         rate = kind == "money" and "/" in (col.formula or "")
         return not (kind in ("name", "cost") or rate)
 
+    def _write(self, key, value, rebuild=False):
+        """One option into this account's own file -- where everything about
+        how it is seen lives. rebuild: read the settings again (columns)."""
+        try:
+            settings.write_option(self.source["platform"], self.source["account"], key, value)
+        except (OSError, ValueError) as e:
+            self.notify(f"cannot write this account's file ({e}) -- , opens it", severity="error")
+            return False
+        if rebuild:
+            self.layout = self.make_layout(self.source)
+            if self.span:
+                self._redraw()
+        return True
+
+    def _save_sort(self):
+        words = [("-" if rev else "") + (k[2:] if k.startswith("n:") else k)
+                 for k, rev in self._sorts() if k != f"n:{DATE}"]   # by date is Daily's own
+        if words:
+            self._write("sort", words[0] if len(words) == 1 else words)
+
     def _sort_by(self, key):
         """Sort by one column alone: the one already sorted (alone) flips; another
         starts its own way. Any tie-breakers from O go."""
@@ -1612,6 +1732,7 @@ class AdView(App):
         else:
             self.sort_key, self.reverse = key, self._natural(key)
         self.then = []
+        self._save_sort()
         if self.span:
             self._redraw()
 
@@ -1626,6 +1747,7 @@ class AdView(App):
         else:
             sorts.append((key, self._natural(key)))
         (self.sort_key, self.reverse), self.then = sorts[0], sorts[1:]
+        self._save_sort()
         if self.span:
             self._redraw()
 
@@ -1633,6 +1755,7 @@ class AdView(App):
         """O, x: the column out of the sort (the last one left stays)."""
         sorts = [s for s in self._sorts() if s[0] != key] or self._sorts()
         (self.sort_key, self.reverse), self.then = sorts[0], sorts[1:]
+        self._save_sort()
         if self.span:
             self._redraw()
 
@@ -1678,8 +1801,9 @@ class AdView(App):
         self.by = tuple(by)
         if self.by:
             self.last_by = self.by
-        self.view.update(by=list(self.by), last_by=list(self.last_by))
+        self.view["last_by"] = list(self.last_by)     # what g goes back to: a habit, not an option
         self.save(self.state)
+        self._write("group", ["All" if c == ALL else c for c in self.by])
         self._group_button()                          # and the level lit, if it is one
         if self.span:
             self._redraw()
@@ -1695,94 +1819,69 @@ class AdView(App):
 
     # ---- shown / hidden columns ---------------------------------------------------
     def _apply_visible(self):
-        """What h / H picked (remembered), over settings.json's columns and show;
-        keys settings.json no longer has drop out."""
-        # name columns: what h / H picked, remembered with the view; the number
-        # columns are the settings' show -- which H writes -- in its order
-        picked = self.view.get("visible")
-        if isinstance(picked, list):
-            names = {f"n:{c}" for c in self.layout.names}
-            metrics = {k for k in self.layout.visible if not k.startswith("n:")}
-            self.layout.visible = {k for k in picked if k in names} | metrics
-        # and the order shift+← → made among the names: keys it does not know keep their place after
-        order = self.view.get("order")
-        if isinstance(order, list):
-            rank = {k: i for i, k in enumerate(order)}
-            names = sorted(self.layout.names,
-                           key=lambda c: (rank.get(f"n:{c}", len(rank)), self.layout.names.index(c)))
-            self.layout.names[:] = names
+        """Which columns show and in what order is the account's file now
+        (columns, show): the layout read it. Nothing to lay over it."""
+
+    def _shown_names(self):
+        return [c for c in self.layout.names if f"n:{c}" in self.layout.visible]
+
+    def _shown_metrics(self):
+        return [c.key for c in self.layout.catalog if c.key in self.layout.visible]
 
     def action_move_col(self, step):
-        """shift+← / shift+→: the cursor's column one place left / right, past
-        the next shown column -- names among names, metrics among metrics. The
-        cursor goes with it; the order is remembered."""
-        key = self.cur_key
+        """shift+← / shift+→: the cursor's column one place left / right."""
+        self.move_column(self.cur_key, step)
+
+    def move_column(self, key, step):
+        """A column one place along, past the next shown one -- names among
+        names, metrics among metrics -- written to the account's file
+        (columns, show). Shift+← → on the table, shift+↑ ↓ in H. True if it moved."""
         if not key:
-            return
+            return False
         if key.startswith("n:"):
             zone = [f"n:{c}" for c in self.layout.names]
         else:
             zone = [c.key for c in self.layout.catalog]
         if key not in zone:
-            return                                    # Date, Ads: they have no place to move
+            return False                              # Date, Ads: they have no place to move
         shown = [k for k in zone if k in self.layout.visible or k == key]
         at = shown.index(key)
         to = at + step
         if not 0 <= to < len(shown):
-            return
+            return False
         neighbour = shown[to]
         zone.remove(key)
         zone.insert(zone.index(neighbour) + (1 if step > 0 else 0), key)
         if key.startswith("n:"):
             self.layout.names[:] = [k[2:] for k in zone]
-            self.view["order"] = [f"n:{c}" for c in self.layout.names]
-            self.save(self.state)
-        else:                                         # a number column: its place in show
-            by_key = {c.key: c for c in self.layout.catalog}
-            self.layout.catalog[:] = [by_key[k] for k in zone]
-            if not self._write_show([c.key for c in self.layout.catalog if c.key in self.layout.visible]):
-                return
-        if self.span:
-            self._redraw()
+            return self._write("columns", self._shown_names(), rebuild=True)
+        by_key = {c.key: c for c in self.layout.catalog}
+        self.layout.catalog[:] = [by_key[k] for k in zone]
+        return self._write("show", self._shown_metrics(), rebuild=True)
 
     def _reset_view(self):
-        """H, r: the settings' columns again -- this account's show taken out of
-        its file, so the platform's own set (or settings.json's) applies."""
-        for k in ("visible", "order"):
-            self.view.pop(k, None)
-        self.save(self.state)
-        self._write_show(None)
+        """H, r: the settings' columns again -- this account's columns and show
+        taken out of its file, so the platform's own set (or settings.json's) applies."""
+        self._write("columns", None)
+        self._write("show", None, rebuild=True)
 
     def _write_show(self, show):
-        """This account's number columns, written to its own file (None: taken
-        out); the screen reads the settings again. False when it cannot write."""
-        try:
-            settings.write_option(self.source["platform"], self.source["account"], "show", show)
-        except (OSError, ValueError) as e:
-            self.notify(f"cannot write this account's file ({e}) -- , opens it", severity="error")
-            return False
-        self.layout = self.make_layout(self.source)
-        self._apply_visible()
-        if self.span:
-            self._redraw()
-        return True
+        """This account's number columns, written to its own file (None: taken out)."""
+        return self._write("show", show, rebuild=True)
 
     def _set_visible(self, keys):
-        """Name columns into the view; number columns into the account's show,
-        keeping the order they had and adding new ones at the end."""
+        """Ticks: name columns into the file's columns, number columns into its
+        show, each keeping the order it had and adding new ones at the end."""
         keys = set(keys)
-        self.view["visible"] = sorted(k for k in keys if k.startswith("n:"))
-        self.save(self.state)
-        now = [c.key for c in self.layout.catalog if c.key in self.layout.visible]
+        names_now, now = self._shown_names(), self._shown_metrics()
+        names = [c for c in names_now if f"n:{c}" in keys] + [c for c in self.layout.names
+                                                              if f"n:{c}" in keys and c not in names_now]
         show = [k for k in now if k in keys] + [c.key for c in self.layout.catalog
                                                if c.key in keys and c.key not in now]
+        if names != names_now:
+            self._write("columns", names, rebuild=show == now)
         if show != now:
-            self._write_show(show)
-            return
-        self.layout.visible = {k for k in self.layout.visible if not k.startswith("n:")} | {
-            k for k in keys if k.startswith("n:")}
-        if self.span:
-            self._redraw()
+            self._write("show", show, rebuild=True)
 
     def action_hide_here(self):
         """h: hide the column the cursor is on; the cursor steps to the next one."""
@@ -1802,24 +1901,18 @@ class AdView(App):
                     "  ·  H brings it back", timeout=2)
 
     def action_pick_columns(self):
-        """H: every column there is, searchable, ticked when shown -- the
-        platform's set ticked from the start; each tick applies at once."""
-        lay = self.layout
-        cols = [(f"n:{c}", lay.label(c), "name", True) for c in lay.names]
-        for c in lay.catalog:
-            what = c.formula or "part of the spend shown"
-            ok = lay.available(c)
-            cols.append((c.key, c.header, what if ok else f"{what}  · not on {lay.platform_title}", ok))
-        title = f"Columns  ·  {self.source['label']}"
-        order = [c.key for c in lay.catalog if c.key in lay.visible]
-        self.push_screen(ColumnsScreen(title, cols, lay.visible, self._set_visible,
-                                       self._reset_view, self._new_metric, lay.presets, order,
-                                       self._write_show))
+        """H: the options window on Columns -- sets, ticks, order, a new metric."""
+        self.push_screen(OptionsScreen("columns"))
 
-    def _new_metric(self):
+    def _new_metric(self, after=None):
         total = self.recs[0] if self.recs else None
+
+        def save(*got):
+            self._save_metric(*got)
+            if after:
+                after()
         self.push_screen(MetricScreen(total, self.layout.provides, self.layout.platform_title,
-                                      self.source.get("currency", ""), self._save_metric))
+                                      self.source.get("currency", ""), save))
 
     def _save_metric(self, name, formula, kind):
         """The new metric into the account's own file, and shown at the end."""
@@ -1930,9 +2023,11 @@ class AdView(App):
         self._place(row)
 
     def _set_pin(self, cols, on=True):
-        self.pin = [c for c in self.layout.names if c in cols]
-        self.pin_on = on
-        self.view.update(pin=self.pin, pin_on=self.pin_on)
+        pin = [c for c in self.layout.names if c in cols]
+        if pin != self.pin:
+            self._write("pin", pin)
+        self.pin, self.pin_on = pin, on
+        self.view["pin_on"] = on                      # f: pins off for a while, not an option
         self.save(self.state)
         if self.span:
             self._redraw()
@@ -1943,14 +2038,12 @@ class AdView(App):
         self.notify(f"pinned: {', '.join(self.layout.label(c) for c in self.pins) or 'none'}", timeout=2)
 
     def action_pick_pin(self):
-        """F: tick the name columns to keep in view on the left."""
-        self.push_screen(PinScreen(self.layout.names, self.layout.labels, self.pin,
-                                   lambda cols: self._set_pin(cols, True)))
+        """F: the options window on Pins."""
+        self.push_screen(OptionsScreen("pins"))
 
     def action_pick_group(self):
-        """G or the button: tick the columns to group by; rows merge as you tick."""
-        self.push_screen(GroupScreen(self.layout.names, self.layout.labels, self.by,
-                                     lambda cols: self._set_group(self.layout.ordered_group(cols))))
+        """G or the Group button: the options window on Group."""
+        self.push_screen(OptionsScreen("group"))
 
     def action_help(self):
         self.push_screen(KeysScreen())
