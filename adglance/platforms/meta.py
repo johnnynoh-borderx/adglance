@@ -34,6 +34,11 @@ PROVIDES = {"spend", "billed", "impressions", "clicks", "watch_time", *VIDEO, *A
 # what a Meta account starts with: clicks and completes, not 6-second views
 SHOW = ["billed", "share", "impressions", "cpm", "ctr", "cpc", "cpv", "complete"]
 CARDS = ["billed", "cpm", "ctr", "cpc"]            # the summary on top
+# column sets to pick from in H, by what a campaign is for
+PRESETS = {"Default": SHOW,
+           "Video views": ["billed", "share", "cpm", "cpv", "cpv2", "cpcv", "complete", "avg_watch"],
+           "Engagement": ["billed", "share", "cpm", "cpe", "cpf", "er"],
+           "Traffic": ["billed", "share", "impressions", "cpm", "ctr", "cpc"]}
 FIELDS = ["ad_id", "ad_name", "adset_name", "campaign_name", "spend", "impressions", "inline_link_clicks",
           "video_avg_time_watched_actions", "actions", *VIDEO.values()]
 

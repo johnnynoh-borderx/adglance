@@ -69,6 +69,10 @@ OPTIONS = [
      "The summary cards on top: metric ids, each the total of what is shown and\n"
      "its change on the period just before. null: the platform's own (spend and\n"
      "its key costs); [] for none."),
+    ("presets", {},
+     "Column sets of your own, offered in H beside the platform's (Default,\n"
+     "Video views, Engagement, Traffic): {\"name\": [metric ids]}. The same name\n"
+     "replaces one of the platform's."),
     ("sort", "-billed",
      "The starting sort: a column id or header; a leading - sorts largest first."),
     ("pin", None,

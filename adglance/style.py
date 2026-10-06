@@ -234,6 +234,20 @@ class Layout:
             if m.get("better") in ("lower", "higher"):
                 self.better[mid] = m["better"]
         self.platform_title = getattr(module, "TITLE", platform)
+        # column sets for H: the platform's, then the settings' own; each keeps
+        # only the metrics there are and this platform can work out
+        sets = dict(getattr(module, "PRESETS", {}))
+        mine = cfg.get("presets") or {}
+        sets.update(mine if isinstance(mine, dict) else {})
+        known = {c.key: c for c in self.catalog}
+        self.presets = {}
+        for name, ids in sets.items():
+            if not isinstance(ids, list):
+                self.problems.append(f"presets.{name}: a list of metric ids")
+                continue
+            keep = [m for m in ids if m in known and self.available(known[m])]
+            if keep:
+                self.presets[str(name)] = keep
         # the summary cards: metrics this platform can work out
         cards = cfg.get("cards")
         if cards is None:

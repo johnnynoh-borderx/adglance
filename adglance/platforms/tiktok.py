@@ -34,6 +34,11 @@ METRICS = ["campaign_name", "adgroup_name", "ad_name", "spend", "average_video_p
 PROVIDES = {"spend", "billed", "watch_time", *COUNTS}
 SHOW = ["billed", "share", "cpm", "cpv", "cpv6", "cpf"]
 CARDS = ["billed", "cpm", "cpv6", "cpf"]           # the summary on top
+# column sets to pick from in H, by what a campaign is for
+PRESETS = {"Default": SHOW,
+           "Video views": ["billed", "share", "cpm", "cpv", "cpv2", "cpv6", "cpcv", "rate_6s", "complete"],
+           "Engagement": ["billed", "share", "cpm", "cpe", "cpf", "er"],
+           "Traffic": ["billed", "share", "impressions", "cpm", "ctr", "cpc"]}
 # the report allows a daily breakdown over 30 days at most ("max time span is
 # 30 days when use stat_time_day"); the store asks in pieces this long
 MAX_DAYS = 30

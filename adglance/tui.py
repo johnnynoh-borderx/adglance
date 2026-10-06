@@ -280,10 +280,15 @@ class ColumnsScreen(ModalScreen):
     file (show). n makes a new metric; r puts back the settings' columns."""
     DEFAULT_CSS = """
     ColumnsScreen { align: center middle; background: #11111b 40%; }
-    ColumnsScreen > Vertical { width: 64; height: auto; max-height: 90%; padding: 1 2;
+    ColumnsScreen > Vertical { width: 84; max-width: 96%; height: auto; max-height: 90%; padding: 1 2;
                                background: #181825; border: round #cba6f7; }
     ColumnsScreen .title { color: #cba6f7; text-style: bold; margin: 0 0 1 0; }
     ColumnsScreen #q { margin: 0 0 1 0; }
+    ColumnsScreen #presets { height: 1; margin: 0 0 1 0; }
+    ColumnsScreen .preset { width: auto; min-width: 0; padding: 0 1; margin: 0 1 0 0;
+                            background: #313244; color: #cdd6f4; text-style: none; }
+    ColumnsScreen .preset:hover { background: #45475a; }
+    ColumnsScreen .preset.on { background: #cba6f7; color: #11111b; text-style: bold; }
     ColumnsScreen SelectionList { background: #181825; border: none; height: auto;
                                   max-height: 22; width: 100%; }
     ColumnsScreen SelectionList:focus { border: none; background-tint: transparent; }
@@ -292,15 +297,21 @@ class ColumnsScreen(ModalScreen):
     BINDINGS = [("escape", "dismiss", "Close"), ("H", "dismiss", "Close"),
                 Binding("r", "defaults", show=False), Binding("n", "new", show=False)]
 
-    def __init__(self, title, columns, visible, on_change, on_reset, on_new):
-        """columns: [(key, label, what it is, available)]"""
+    def __init__(self, title, columns, visible, on_change, on_reset, on_new, presets=None,
+                 shown_order=None, on_preset=None):
+        """columns: [(key, label, what it is, available)]; presets: {name: [metric ids]}"""
         super().__init__()
         self.title_text, self.choices, self.shown = title, columns, set(visible)
         self.on_change, self.on_reset, self.on_new = on_change, on_reset, on_new
+        self.presets, self.order, self.on_preset = presets or {}, list(shown_order or []), on_preset
 
     def compose(self):
         with Vertical():
             yield Static(self.title_text, classes="title")
+            if self.presets:                          # a whole set at once, by what the campaign is for
+                with Horizontal(id="presets"):
+                    for i, name in enumerate(self.presets):
+                        yield Button(name, id=f"preset-{i}", compact=True, classes="preset")
             yield Input(placeholder="Search columns…  (cpv, click, complete…)", id="q")
             yield SelectionList()
             yield Static("↓ results  ·  space tick  ·  n new  ·  r reset  ·  esc close\n"
@@ -308,7 +319,23 @@ class ColumnsScreen(ModalScreen):
 
     def on_mount(self):
         self._fill("")
+        self._light()
         self.query_one("#q").focus()
+
+    def _light(self):
+        """The set the columns are now, lit."""
+        for i, ids in enumerate(self.presets.values()):
+            self.query_one(f"#preset-{i}", Button).set_class(ids == self.order, "on")
+
+    def on_button_pressed(self, event):
+        bid = event.button.id or ""
+        if bid.startswith("preset-") and self.on_preset:
+            ids = list(self.presets.values())[int(bid.removeprefix("preset-"))]
+            self.on_preset(ids)
+            self.shown = {k for k in self.shown if k.startswith("n:")} | set(ids)
+            self.order = list(ids)
+            self._fill(self.query_one("#q", Input).value)
+            self._light()
 
     def _fill(self, query):
         words = query.lower().split()
@@ -348,6 +375,11 @@ class ColumnsScreen(ModalScreen):
             self.query_one(SelectionList).select(key)
             return
         self.on_change(set(self.shown))
+        if not key.startswith("n:"):                  # a number column: the set it now matches, lit
+            self.order = ([k for k in self.order if k != key] if key not in self.shown
+                          else self.order + [key])
+            if self.presets:
+                self._light()
 
     def action_defaults(self):
         self.dismiss()
@@ -1779,8 +1811,10 @@ class AdView(App):
             ok = lay.available(c)
             cols.append((c.key, c.header, what if ok else f"{what}  · not on {lay.platform_title}", ok))
         title = f"Columns  ·  {self.source['label']}"
+        order = [c.key for c in lay.catalog if c.key in lay.visible]
         self.push_screen(ColumnsScreen(title, cols, lay.visible, self._set_visible,
-                                       self._reset_view, self._new_metric))
+                                       self._reset_view, self._new_metric, lay.presets, order,
+                                       self._write_show))
 
     def _new_metric(self):
         total = self.recs[0] if self.recs else None

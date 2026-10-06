@@ -18,7 +18,9 @@ adglance setup      # add, check and edit accounts later (or A on the screen: + 
   platform's key costs -- and the change on the period just before (7d: the 7
   days before), teal when it got better, peach when worse. `"cards"` picks them.
 - **Columns for the platform.** TikTok starts on views and follows, Meta on
-  clicks and completes. `H` lists every column with a search box: tick one,
+  clicks and completes. `H` offers column sets by what a campaign is for (Default, Video
+  views, Engagement, Traffic, and your own `"presets"`) and lists every
+  column with a search box: pick a set, tick one,
   or `n` to make a metric from a formula, previewed on what is shown. Ticks
   are written to the account's own file, the same as editing it.
 - **Campaigns, ad groups, ads.** `1` `2` `3` switch the level; Enter on a
