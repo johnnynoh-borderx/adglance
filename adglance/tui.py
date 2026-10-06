@@ -104,7 +104,7 @@ KEYS = [
                       ("esc", "back: clears the filter first, then goes up a level"),
                       ("ctrl + c", "copy the cursor's cell, as shown"),
                       ("s", "sort by the cursor's column (again: flip)"),
-                      ("/", "filter: every word must match; -word drops (-ca drops CA)")]),
+                      ("/", 'filter: every word must match; -word drops (-ca drops CA); "us if" a phrase')]),
     ("Period", [("t  y  w  m  l", "Today · Yesterday · 7d · MTD · Last month"),
                 ("[  ]", "the window just before / after"),
                 ("p  /  c", "type a period (2026-10-01, 7d, lm)  /  the calendar")]),

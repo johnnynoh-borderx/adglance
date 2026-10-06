@@ -487,21 +487,31 @@ def prepare(raw, layout, statuses=None):
 
 
 # ---- filter, group, total ----------------------------------------------------
+_TERMS = re.compile(r'-?"[^"]+"|\S+')
+_WORDS = re.compile(r"[\s_\-·]+")
+
+
 def matches(r, query):
     """Keep a row when every plain word is in it and no -word is: "vv -ca" is
-    VV outside Canada. Up to two letters a word must be a whole name ("-ca"
-    drops CA, not "Can Yall Tell Me"); from three it may sit anywhere in one
-    ("winner" finds September2026Winner)."""
+    VV outside Canada. Up to two letters a word must be a whole value or a
+    whole word of one ("-ca" drops CA, not "Can Yall Tell Me"; "us if" finds
+    "Us If We Were Ramyun"); from three it may sit anywhere in one ("winner"
+    finds September2026Winner). Quotes keep a phrase together: "us if"."""
     tokens = [str(v).lower() for v in r["names"].values() if v]
 
-    def hit(word):
-        return any(t == word or (len(word) >= 3 and word in t) for t in tokens)
+    def hit(term):
+        if term.startswith('"'):                      # a phrase, as typed
+            phrase = term.strip('"')
+            return any(phrase in t for t in tokens)
+        if len(term) >= 3:
+            return any(term in t for t in tokens)
+        return any(t == term or term in _WORDS.split(t) for t in tokens)
 
-    for word in query.lower().split():
-        if word.startswith("-") and len(word) > 1:
-            if hit(word[1:]):
+    for term in _TERMS.findall(query.lower()):
+        if term.startswith("-") and len(term) > 1:
+            if hit(term[1:]):
                 return False
-        elif not hit(word):
+        elif not hit(term):
             return False
     return True
 
