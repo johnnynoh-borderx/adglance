@@ -83,8 +83,8 @@ MOCHA = Theme(name="adglance-mocha", dark=True,
 DAY = re.compile(r"(\d{4}-)?\d{2}-\d{2}")         # a date typed in From
 log = logging.getLogger("adglance")
 # the Status column's width from the start: the longest word and its icon
-# ("No budget"), so statuses arriving never widen it and push the rest aside
-STATUS_WIDTH = 11
+# ("Unreadable"), so statuses arriving never widen it and push the rest aside
+STATUS_WIDTH = 12
 ADD_ACCOUNT = "+add"                 # the account picker's last row: the key form, over the numbers
 # 1 campaigns, 2 ad groups (in their campaigns), 3 the ads themselves
 LEVELS = {1: ("campaign_name",), 2: ("campaign_name", "adgroup_name"), 3: ()}

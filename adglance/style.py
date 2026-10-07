@@ -631,10 +631,13 @@ GLYPHS = {
     "st_budget": "",     #  dollar
     "st_scheduled": "",  #  clock
     "st_ended": "",      #  chequered flag
+    "st_deleted": "\uf1f8",     # trash
+    "st_unreadable": "\uf128",  # question
 }
 STATUS_GLYPH = {"Live": "st_live", "Off": "st_off", "Camp off": "st_campoff",
                 "Review": "st_review", "Rejected": "st_rejected", "No budget": "st_budget",
-                "Scheduled": "st_scheduled", "Ended": "st_ended"}
+                "Scheduled": "st_scheduled", "Ended": "st_ended", "Deleted": "st_deleted",
+                "Unreadable": "st_unreadable"}
 ICONS = {"on": True}
 
 

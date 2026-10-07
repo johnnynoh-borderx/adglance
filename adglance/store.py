@@ -173,19 +173,19 @@ class Store:
         with self.lock:
             known = dict(getattr(self, "_status", None) or {})
             swept = getattr(self, "_swept", 0)
+        since = str(today(self.zone) - dt.timedelta(days=1))
+        with self.lock:
+            busy = [r[0] for r in self.db.execute(
+                "SELECT DISTINCT ad_id FROM daily WHERE day >= ? AND spend > 0", (since,))]
         if full or not known or time.time() - swept > self.SWEEP:
-            got, swept = self.module.statuses(self.account), time.time()
-            known = got
-        else:
-            since = str(today(self.zone) - dt.timedelta(days=1))
-            with self.lock:
-                busy = [r[0] for r in self.db.execute(
-                    "SELECT DISTINCT ad_id FROM daily WHERE day >= ? AND spend > 0", (since,))]
-            ids = [a for a in busy if a in known]
-            if ids:
-                known.update(self.module.statuses(self.account, ids))
-            if any(a not in known for a in busy):            # a new ad: sweep to find it
-                known, swept = self.module.statuses(self.account), time.time()
+            known, swept = self.module.statuses(self.account), time.time()
+        elif busy:
+            known.update(self.module.statuses(self.account, busy))
+        # an ad the listing left out (a page TikTok would not read): asked by id,
+        # which also tells a deleted or unreadable ad apart from a new one
+        missing = [a for a in busy if a not in known]
+        if missing:
+            known.update(self.module.statuses(self.account, missing))
         with self.lock:
             self._status, self._swept = known, swept
 
