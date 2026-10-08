@@ -242,7 +242,12 @@ class Layout:
             except ValueError as e:
                 self.problems.append(f"metrics.{mid}: {e}")
                 continue
-            self.catalog.append(Column(mid, m.get("name", mid), kind,
+            # a platform's own word for a count (TikTok: Clicks (destination)), unless
+            # the settings named it
+            name = m.get("name", mid)
+            if mid in getattr(module, "NAMES", {}) and name == "Clicks":
+                name = module.NAMES[mid]
+            self.catalog.append(Column(mid, name, kind,
                                        None if kind == "share" else formula))
             if m.get("better") in ("lower", "higher"):
                 self.better[mid] = m["better"]
