@@ -243,16 +243,16 @@ class ColumnsPane(Pane):
         shown_names = [c for c in names if f"n:{c}" in lay.visible]
         metrics = list(lay.catalog)
         shown_metrics = [c for c in metrics if c.key in lay.visible]
+        # (key, label, what it is, its value now, why it cannot be picked, available)
         rows = []
         for c in shown_names + [c for c in names if c not in shown_names]:
-            rows.append((f"n:{c}", lay.label(c), app.example(c) or "name", True))
+            rows.append((f"n:{c}", lay.label(c), app.example(c) or "name", "", "", True))
         for c in shown_metrics + [c for c in metrics if c not in shown_metrics and lay.available(c)] \
                 + [c for c in metrics if not lay.available(c)]:
             ok = lay.available(c)
-            what = c.formula or "part of the spend shown"
-            now = app.example_value(c)
-            what = f"{what}   = {now}" if now and ok else what
-            rows.append((c.key, c.header, what if ok else f"{what}  · not on {lay.platform_title}", ok))
+            now = app.example_value(c) if ok else ""
+            rows.append((c.key, c.header, c.formula or "part of the spend shown",
+                         f"= {now}" if now else "", "" if ok else f"not on {lay.platform_title}", ok))
         self.rows = rows
         self.shown = set(lay.visible)
         self.order = [c.key for c in shown_metrics]
@@ -268,11 +268,20 @@ class ColumnsPane(Pane):
                       if box.highlighted is not None and box.option_count else None)
         words = self.query_one("#q", Input).value.lower().split()
         box.clear_options()
-        for key, label, what, available in self.rows:
+        # every label in one column, every "= value" in the next: widths from the longest
+        lw = max((len(r[1]) for r in self.rows), default=0) + 3
+        fw = max((len(r[2]) for r in self.rows if r[3]), default=0) + 3
+        for key, label, what, value, why, available in self.rows:
             if words and not all(w in f"{key} {label} {what}".lower() for w in words):
                 continue
-            text = Text(f"{label:<16}", style="" if available else "#6c7086")
-            text.append(what, style="#7f849c" if available else "#9399b2 italic")
+            text = Text(f"{label:<{lw}}", style="" if available else "#6c7086")
+            if value:
+                text.append(f"{what:<{fw}}", style="#7f849c")
+                text.append(value, style="#cdd6f4")
+            else:
+                text.append(what, style="#7f849c" if available else "#6c7086")
+            if why:
+                text.append(f"   {why}", style="#9399b2 italic")
             box.add_option(Selection(text, key, key in self.shown, disabled=not available))
         if at is not None:
             for i in range(box.option_count):
@@ -427,9 +436,11 @@ class TickPane(Pane):
     def reload(self):
         box = self.query_one("#ticks", SelectionList)
         box.clear_options()
-        for label, value, on in self.items():
+        items = self.items()
+        lw = max((len(str(label)) for label, _, _ in items), default=0) + 3
+        for label, value, on in items:
             if value in self.app.layout.names:        # a name column: what is in it, for an idea
-                text = Text(f"{label:<16}")
+                text = Text(f"{label:<{lw}}")
                 text.append(self.app.example(value), style="#7f849c")
                 label = text
             box.add_option(Selection(label, value, on))
@@ -490,8 +501,16 @@ class CardsPane(Pane):
         box = self.query_one("#cardlist", SelectionList)
         box.clear_options()
         by_key = {c.key: c for c in lay.catalog}
-        for c in [by_key[k] for k in self.cards] + rest:
-            box.add_option(Selection(f"{c.header:<16}{c.formula or ''}", c.key, c.key in self.cards))
+        listed = [by_key[k] for k in self.cards] + rest
+        lw = max((len(c.header) for c in listed), default=0) + 3
+        fw = max((len(c.formula or "") for c in listed), default=0) + 3
+        for c in listed:
+            text = Text(f"{c.header:<{lw}}")
+            text.append(f"{c.formula or '':<{fw}}", style="#7f849c")
+            now = self.app.example_value(c)
+            if now:
+                text.append(f"= {now}", style="#cdd6f4")
+            box.add_option(Selection(text, c.key, c.key in self.cards))
         for i in range(box.option_count):
             if box.get_option_at_index(i).value == keep:
                 box.highlighted = i
