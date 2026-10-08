@@ -199,7 +199,7 @@ def table(words, console, layout, src, search="", sort=None, by=(), daily=False,
     if STATUS in layout.names:                     # the ads' state now: a second, slower call
         try:
             with console.status(f"[{MAUVE}]fetching ad statuses…", spinner="dots", spinner_style=MAUVE):
-                store.fetch_statuses()
+                store.fetch_statuses(ids={r["ad_id"] for r in store.rows(start, end)})
             statuses = store.statuses() or {}
         except PlatformError as e:
             Console(stderr=True).print(f"[yellow]!! statuses: {e}[/]")

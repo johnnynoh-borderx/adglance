@@ -162,12 +162,12 @@ class Store:
             st = getattr(self, "_status", None)
             return None if st is None else dict(st)
 
-    def fetch_statuses(self, full=False):
-        """Fetch ad statuses. Every ad (pages in parallel) when asked, never done
-        this session, or the last full sweep is over SWEEP old; otherwise only
-        the ads that delivered in the last 2 days, by id -- an ad that is not
-        spending changes nothing that matters until it spends, and then it is
-        in that set. So many ads cost one full sweep an hour, not one a refresh."""
+    def fetch_statuses(self, full=False, ids=None):
+        """The statuses of these ads -- the ones on screen -- by id, not every
+        ad the account ever had: a week's view asks for its dozen (0.7 s) where a
+        sweep of all would take 3 s. What is known is kept for the session and
+        asked again only when the ad spent in the last 2 days (its state may
+        have moved) or with full (r). ids None: the ads that spent lately."""
         if not hasattr(self.module, "statuses"):
             return
         with self.lock:
@@ -175,17 +175,13 @@ class Store:
             swept = getattr(self, "_swept", 0)
         since = str(today(self.zone) - dt.timedelta(days=1))
         with self.lock:
-            busy = [r[0] for r in self.db.execute(
-                "SELECT DISTINCT ad_id FROM daily WHERE day >= ? AND spend > 0", (since,))]
-        if full or not known or time.time() - swept > self.SWEEP:
-            known, swept = self.module.statuses(self.account), time.time()
-        elif busy:
-            known.update(self.module.statuses(self.account, busy))
-        # an ad the listing left out (a page TikTok would not read): asked by id,
-        # which also tells a deleted or unreadable ad apart from a new one
-        missing = [a for a in busy if a not in known]
-        if missing:
-            known.update(self.module.statuses(self.account, missing))
+            busy = {r[0] for r in self.db.execute(
+                "SELECT DISTINCT ad_id FROM daily WHERE day >= ? AND spend > 0", (since,))}
+        wanted = set(ids) if ids is not None else set(busy)
+        ask = wanted if full else {a for a in wanted if a not in known or a in busy}
+        if ask:
+            known.update(self.module.statuses(self.account, sorted(ask)))
+            swept = time.time()
         with self.lock:
             self._status, self._swept = known, swept
 

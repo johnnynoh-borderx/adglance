@@ -794,7 +794,8 @@ class AdView(App):
         self.source = by_key.get(self.state.get("source")) or sources[0]
         set_zone(self.source.get("timezone"))          # the remembered account's days
         self.history = [h for h in self.state.get("periods", []) if isinstance(h, str)]
-        self.words, self.query_text = list(words), query
+        # the filter: what the command line says, else what was typed last time
+        self.words, self.query_text = list(words), query or self.view.get("filter", "")
         self.raw, self.rows, self.span, self.dates = [], [], "", None
         self.prev_asked = set()                       # periods-before already asked for
         self.make_layout = layout
@@ -1085,14 +1086,18 @@ class AdView(App):
         self._redraw()
         self._spin_status(statuses is None)
 
-    @work(thread=True, exclusive=True, group="status")
     def _fetch_status(self, full=False):
+        """The statuses of the ads in the period shown, after the numbers."""
+        if STATUS in self.layout.names:
+            ids = {i for r in self.rows for i in r.get("ids", ()) if i}
+            self._fetch_status_of(ids, full)
+
+    @work(thread=True, exclusive=True, group="status")
+    def _fetch_status_of(self, ids, full):
         """The ads' statuses, after the numbers: the Status cells spin until they land."""
-        if STATUS not in self.layout.names:
-            return
         store = self.source["store"]
         try:
-            store.fetch_statuses(full=full)
+            store.fetch_statuses(full=full, ids=ids)
             error = None
         except Exception as e:
             log.exception("statuses")
@@ -1205,6 +1210,7 @@ class AdView(App):
         self.source = src
         self.layout = self.make_layout(src)
         self._restore_view()
+        self.query_one("#filter", Input).value = self.view.get("filter", "")   # this account's
         self.where, self.levels, self.filters = {}, [], []
         self.query_one("#group", Button).set_class(bool(self.by), "on")
         with self.prevent(Select.Changed):
@@ -1303,7 +1309,7 @@ class AdView(App):
             src["store"].settled_days = getattr(self.layout, "settled_days", src["store"].settled_days)
         self._banner()
         # a grouping by a column settings.json no longer has: drop that column
-        self._set_group(self.layout.ordered_group([c for c in self.by if c in self.layout.names
+        self._set_group(save=False, by=self.layout.ordered_group([c for c in self.by if c in self.layout.names
                                                     or c == ALL]))
         # the grouping g brings back too, or g would restore a column that is gone
         self.last_by = self.layout.ordered_group([c for c in self.last_by if c in self.layout.names
@@ -1661,6 +1667,9 @@ class AdView(App):
         long Daily table is not summed again for every letter."""
         if event.input.id == "filter":
             self.refresh_bindings()                   # esc: Clear filter / Back
+            if not self.levels:                       # the top level's filter, for next time
+                self.view["filter"] = event.value
+                self.save(self.state)
         if event.input.id == "filter" and self.span:
             if self.typing:
                 self.typing.stop()
@@ -1796,14 +1805,17 @@ class AdView(App):
     def _group_label(self):
         return f"{icon('group')}Group: {self._group_words() or 'none'}"
 
-    def _set_group(self, by):
-        """Group by these columns (() none, (ALL,) everything); remembered."""
+    def _set_group(self, by, save=True):
+        """Group by these columns (() none, (ALL,) everything); written to the
+        account's file when you set it (save) -- not when a refresh re-reads
+        the settings inside a drill-down, which would write the inner level."""
         self.by = tuple(by)
         if self.by:
             self.last_by = self.by
         self.view["last_by"] = list(self.last_by)     # what g goes back to: a habit, not an option
         self.save(self.state)
-        self._write("group", ["All" if c == ALL else c for c in self.by])
+        if save:
+            self._write("group", ["All" if c == ALL else c for c in self.by])
         self._group_button()                          # and the level lit, if it is one
         if self.span:
             self._redraw()
