@@ -213,17 +213,22 @@ class ColumnsPane(Pane):
     """Every column, ticked when shown and in the table's order: shown names,
     hidden names, then shown numbers, hidden numbers. Pick a set, tick, move."""
     BINDINGS = [Binding("r", "reset", show=False), Binding("n", "new", show=False),
+                Binding("slash", "search", show=False),
                 Binding("shift+up", "move(-1)", show=False), Binding("shift+down", "move(1)", show=False)]
 
     def compose(self):
         yield Horizontal(id="presets")
-        yield Input(placeholder="Search columns…  (cpv, click, complete…)", id="q")
+        yield Input(placeholder="/ search columns…  (cpv, click, complete…)", id="q")
         yield SelectionList(id="cols")
-        yield Static("space tick  ·  shift+↑↓ move  ·  n new metric  ·  r reset\n"
+        yield Static("/ search  ·  space tick  ·  shift+↑↓ move  ·  n new metric  ·  r reset\n"
                      "names first, then numbers  ·  saved for this account as you go", classes="hint")
 
     def first(self):
-        return self.query_one("#q")
+        # the list, not the search: letters stay keys (G, S ... switch tabs); / searches
+        return self.query_one("#cols")
+
+    def action_search(self):
+        self.query_one("#q").focus()
 
     def reload(self, keep=None):
         app = self.app
@@ -240,17 +245,22 @@ class ColumnsPane(Pane):
         shown_metrics = [c for c in metrics if c.key in lay.visible]
         rows = []
         for c in shown_names + [c for c in names if c not in shown_names]:
-            rows.append((f"n:{c}", lay.label(c), "name", True))
+            rows.append((f"n:{c}", lay.label(c), app.example(c) or "name", True))
         for c in shown_metrics + [c for c in metrics if c not in shown_metrics and lay.available(c)] \
                 + [c for c in metrics if not lay.available(c)]:
             ok = lay.available(c)
             what = c.formula or "part of the spend shown"
+            now = app.example_value(c)
+            what = f"{what}   = {now}" if now and ok else what
             rows.append((c.key, c.header, what if ok else f"{what}  · not on {lay.platform_title}", ok))
         self.rows = rows
         self.shown = set(lay.visible)
         self.order = [c.key for c in shown_metrics]
         self._fill(keep)
         self._light()
+        box = self.query_one("#cols", SelectionList)
+        if box.highlighted is None and box.option_count:
+            box.highlighted = 0
 
     def _fill(self, keep=None):
         box = self.query_one("#cols", SelectionList)
@@ -418,6 +428,10 @@ class TickPane(Pane):
         box = self.query_one("#ticks", SelectionList)
         box.clear_options()
         for label, value, on in self.items():
+            if value in self.app.layout.names:        # a name column: what is in it, for an idea
+                text = Text(f"{label:<16}")
+                text.append(self.app.example(value), style="#7f849c")
+                label = text
             box.add_option(Selection(label, value, on))
         if box.option_count and box.highlighted is None:
             box.highlighted = 0
@@ -1915,6 +1929,30 @@ class AdView(App):
     def action_pick_columns(self):
         """H: the options window on Columns -- sets, ticks, order, a new metric."""
         self.push_screen(OptionsScreen("columns"))
+
+    def example(self, col, most=3):
+        """What a name column holds in the period shown, the values with the
+        most spend first: "VV, ENG" or "Shin Edit, Shin PPAP, Hopecore Pt2 +8"."""
+        spend = {}
+        for r in self.rows:
+            v = r["names"].get(col)
+            if v and v != LOADING:
+                spend[v] = spend.get(v, 0) + (r.get("billed") or r.get("spend") or 0)
+        top = sorted(spend, key=spend.get, reverse=True)
+        if not top:
+            return ""
+        text = ", ".join(str(v)[:22] for v in top[:most])
+        return text + (f"  +{len(top) - most}" if len(top) > most else "")
+
+    def example_value(self, col):
+        """A metric on everything shown now, as the table writes it."""
+        if not self.recs or col.kind == "share":
+            return ""
+        v = derive(dict(self.recs[0]), [col]).get(col.key)
+        if v is None:
+            return ""
+        sym = SYMBOL.get(self.source.get("currency", ""), "") if col.kind in ("money", "cost") else ""
+        return sym + number(v, col.kind)
 
     def _new_metric(self, after=None):
         total = self.recs[0] if self.recs else None
