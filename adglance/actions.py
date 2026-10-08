@@ -2,7 +2,7 @@
 
 One ad: copy its name, its ID or its campaign's name, copy the link to it in the
 platform's own manager (Ads Manager, filtered to this ad -- the preview is one
-click there), or copy the row as one line to paste into a message. Copies go
+click there), or copy the row as a block to paste into a message. Copies go
 through the terminal (OSC 52), so over SSH they land on this Mac's clipboard.
 
 A group, or TOTAL: its ads, to pick one, or copy all their names at once.
@@ -16,7 +16,7 @@ from textual.screen import ModalScreen
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
-from .style import DATE, SYMBOL, derive, icon, number
+from .style import DATE, LOADING, STATUS, SYMBOL, derive, icon, number
 
 CSS = """
 ActionScreen { align: center middle; background: #11111b 50%; }
@@ -34,20 +34,62 @@ ActionScreen .link { color: #89b4fa; margin: 1 0 0 0; }
 
 
 def row_line(rec, cols, span, currency):
-    """The row as one line to paste: what it is, the period, then each number."""
-    names = [v for v in rec["names"].values() if v]
+    """The row as a block to paste into a message, readable in any font:
+    what it is, its campaign, the period and its state, then one number a line,
+    its target's verdict beside the judged one.
+
+        Shin Edit  ·  US · AO · VV · 2026-09 · Winner
+        SHIN_US_AO_VV_SOC_September2026Winner
+        2026-09-30 – 2026-10-06  ·  Camp off
+
+        Billed    ₩1,707,519
+        6s CPV    ₩9.2         target ≤20 ✓
+    """
     sym = SYMBOL.get(currency, currency)
-    numbers = []
+    names = rec.get("names") or {}
+    status = names.get(STATUS)
+    status = status if status and status != LOADING else ""
+    raw = ("campaign_name", "adgroup_name", "ad_name")
+    members = rec.get("members") or []
+    n = rec.get("n", 1)
+    ads = f"{n:,} ad{'s' if n != 1 else ''}"
+    if rec.get("total"):
+        head = f"Everything shown  ·  {ads}"
+    elif len(members) > 1:
+        shared = [v for k, v in names.items()
+                  if v and k not in rec.get("mixed", ()) and k not in (STATUS, DATE)]
+        head = "  ·  ".join([" · ".join(shared), ads] if shared else [ads])
+    else:
+        one = members[0] if members else rec
+        what = names.get("content") or one.get("ad_name") or ""
+        rest = [v for k, v in names.items() if v and k not in (STATUS, DATE, "content", *raw)]
+        head = what + (f"  ·  {' · '.join(rest)}" if rest else "")
+    lines = [head]
+    campaign = (members[0] if len(members) == 1 else rec).get("campaign_name") if not rec.get("total") else ""
+    if campaign and len(members) <= 1:
+        lines.append(campaign)
+    when = span.replace(" .. ", " – ") if span else ""
+    lines.append("  ·  ".join(x for x in (when, status) if x))
+    lines.append("")
+    rows = []
     for c in cols:
         v = rec.get(c.key)
         if c.kind in ("name", "count") or v is None:
             continue
         if c.kind == "share":
-            numbers.append(f"{c.header} {v * 100:.0f}%")
+            shown = f"{v * 100:.0f}%"
         else:
-            money = sym if c.kind in ("money", "cost") else ""
-            numbers.append(f"{c.header} {money}{number(v, c.kind)}")
-    return "  ·  ".join([" ".join(names), span, *numbers])
+            shown = (sym if c.kind in ("money", "cost") else "") + number(v, c.kind)
+        verdict = ""
+        if rec.get("judged") == c.key and rec.get("limit") is not None:
+            verdict = f"target ≤{rec['limit']:,.0f} {'✓' if v <= rec['limit'] else '✗ over'}"
+        rows.append((c.header, shown, verdict))
+    width = max((len(h) for h, _, _ in rows), default=0)
+    vwidth = max((len(x) for _, x, _ in rows), default=0)
+    for header, shown, verdict in rows:
+        line = f"{header:<{width}}  {shown:>{vwidth}}"
+        lines.append(f"{line}   {verdict}" if verdict else line)
+    return "\n".join(lines).rstrip()
 
 
 class ActionScreen(ModalScreen):
