@@ -141,8 +141,13 @@ class Store:
                          for p in PARTS)
         day = ", daily.day AS day" if daily else ""
         by = "daily.ad_id, daily.day" if daily else "daily.ad_id"
-        sql = (f"SELECT daily.ad_id, ads.campaign_name, ads.adgroup_name, ads.ad_name{day}, {sums} FROM daily "
-               f"LEFT JOIN ads USING (ad_id) WHERE daily.day BETWEEN ? AND ? GROUP BY {by}")
+        # each ad's first and last day with spend, over every day kept -- its run,
+        # not the period's
+        life = ("LEFT JOIN (SELECT ad_id, min(day) AS first, max(day) AS last FROM daily "
+                "WHERE spend > 0 GROUP BY ad_id) AS life USING (ad_id)")
+        sql = (f"SELECT daily.ad_id, ads.campaign_name, ads.adgroup_name, ads.ad_name{day}, "
+               f"life.first AS first, life.last AS last, {sums} FROM daily "
+               f"LEFT JOIN ads USING (ad_id) {life} WHERE daily.day BETWEEN ? AND ? GROUP BY {by}")
         with self.lock:
             cur = self.db.execute(sql, (start, end))
             names = [c[0] for c in cur.description]

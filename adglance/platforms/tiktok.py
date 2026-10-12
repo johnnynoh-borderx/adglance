@@ -33,7 +33,7 @@ COUNTS = {"impressions": "impressions", "clicks": "clicks", "views": "video_play
 METRICS = ["campaign_name", "adgroup_name", "ad_name", "spend", "average_video_play", *COUNTS.values()]
 # the counts it reports (all of them), and the columns a TikTok account starts with
 PROVIDES = {"spend", "billed", "watch_time", *COUNTS}
-SHOW = ["billed", "share", "cpm", "cpv", "cpv6", "cpf"]
+SHOW = ["billed", "share", "cpm", "cpv", "cpv6", "cpf", "first", "last"]
 CARDS = ["billed", "cpm", "cpv6", "cpf"]           # the summary on top
 # what TikTok calls a count, where adglance's own word would mislead
 NAMES = {"clicks": "Clicks (destination)"}

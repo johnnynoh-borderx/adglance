@@ -78,6 +78,8 @@ def row_line(rec, cols, span, currency):
             continue
         if c.kind == "share":
             shown = f"{v * 100:.0f}%"
+        elif c.kind == "day":
+            shown = v
         else:
             shown = (sym if c.kind in ("money", "cost") else "") + number(v, c.kind)
         verdict = ""

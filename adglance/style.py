@@ -45,7 +45,7 @@ HIGHLIGHT = set()                    # values drawn yellow with a trophy (Winner
 PARTS = ["spend", "billed", "impressions", "clicks", "views", "views_2s", "views_6s",
          "views_25", "views_50", "views_75", "views_100", "watch_time", "likes",
          "comments", "shares", "follows", "profile_visits", "engagements"]
-FORMATS = ("money", "cost", "pct", "number", "share")
+FORMATS = ("money", "cost", "pct", "number", "share", "day")
 DEFAULT_SHOW = ["billed", "share", "cpm", "cpv", "cpv6", "cpf"]
 
 # key, header, kind, formula. kind: name, count, or one of FORMATS
@@ -235,7 +235,9 @@ class Layout:
             try:
                 if kind not in FORMATS:
                     raise ValueError(f"format {kind!r} -- use one of {', '.join(FORMATS)}")
-                if kind != "share":
+                if kind == "day" and mid not in ("first", "last"):
+                    raise ValueError("format day is first and last's alone")
+                if kind not in ("share", "day"):
                     if not formula:
                         raise ValueError("no formula")
                     compile_formula(formula)
@@ -275,7 +277,7 @@ class Layout:
         for mid in cards if isinstance(cards, list) else []:
             if mid not in by_key:
                 self.problems.append(f"cards: {mid!r} is not a metric")
-            elif by_key[mid].kind != "share" and self.available(by_key[mid]):
+            elif by_key[mid].kind not in ("share", "day") and self.available(by_key[mid]):
                 self.cards.append(by_key[mid])
         # what is drawn: these keys (n:name for a name column, the id for a
         # metric); the screen replaces it with what h / H picked
@@ -484,6 +486,7 @@ def prepare(raw, layout, statuses=None):
             names = {DATE: r["day"], **names}
         gate = layout.target(names)
         rec = {p: r.get(p) or 0.0 for p in PARTS}
+        rec["first"], rec["last"] = r.get("first"), r.get("last")      # the ad's run
         rec.update(names=names, campaign_name=campaign, adgroup_name=r.get("adgroup_name", ""), ad_name=ad,
                    judged=gate[0] if gate else None, limit=gate[1] if gate else None,
                    ids=frozenset([r.get("ad_id") or ad]), n=1, raw_status=raw_status)
@@ -526,6 +529,9 @@ def combine(recs, label=None):
     kept, the others blank and listed in "mixed". Judged only when they share
     one yardstick."""
     rec = {p: sum(r[p] for r in recs) for p in PARTS}
+    # a group's run: its earliest first day and its latest last day
+    rec["first"] = min((r["first"] for r in recs if r.get("first")), default=None)
+    rec["last"] = max((r["last"] for r in recs if r.get("last")), default=None)
     names, mixed = {}, set()
     for col in (recs[0]["names"] if recs else {}):
         values = {r["names"].get(col) for r in recs}
@@ -596,7 +602,7 @@ def value(r, key):
 def ordered(recs, key, reverse):
     """Sorted by one column. Names A-Z with blanks last; numbers with a missing
     value (no 6s views, no follows) last either way."""
-    if key.startswith("n:"):
+    if key.startswith("n:") or key in ("first", "last"):     # text, and days as text: ISO sorts
         return sorted(recs, key=lambda r: ((value(r, key) or "") == "", (value(r, key) or "").lower()),
                       reverse=reverse)
     sign = -1 if reverse else 1
@@ -702,9 +708,10 @@ def _name_style(v, col_index, from_ad):
     return f"bold {TEXT}" if from_ad else SUBTEXT
 
 
-def cells(cols, r, layout):
+def cells(cols, r, layout, room=None):
     """One row's cells, coloured by what they mean. A TOTAL row puts its label
-    in the first column and is drawn brighter."""
+    in the first column and is drawn brighter. room: {name column: characters}
+    where a wide screen lets a name show more than its usual cut."""
     total = r.get("total")
     from_ad = layout.from_ad
     out = []
@@ -729,6 +736,7 @@ def cells(cols, r, layout):
                 # a long project name would widen its whole column; the detail
                 # line under the table has it in full
                 limit = CONTENT_WIDTH if name in from_ad or name in RAW else NAME_WIDTH
+                limit = max(limit, (room or {}).get(name, 0))
                 shown = v if len(v) <= limit else v[:limit - 1] + "…"
                 shown = f"{icon('winner')}{shown}" if v in HIGHLIGHT else shown
                 cell = Text(shown, style=_name_style(v, i, name in from_ad))
@@ -737,6 +745,9 @@ def cells(cols, r, layout):
                 out.append(cell)
         elif c.kind == "count":
             out.append(Text(f"{r.get('n', 1):,}", style=SUBTEXT, justify="right"))
+        elif c.kind == "day":
+            v = r.get(c.key)
+            out.append(Text(v or "–", style=(f"bold {WHITE}" if total else SUBTEXT) if v else OVERLAY))
         elif c.kind == "share":
             v = r.get("share")
             out.append(Text("") if v is None else Text.assemble(
@@ -799,6 +810,9 @@ def detail(r, currency="", col=None, labels=None):
     elif col is not None and col.kind == "name":
         key = col.key[2:]
         line = f"{labels.get(key, key)}: {r['names'].get(key) or '–'}"
+    elif col is not None and col.kind == "day":
+        line = (f"{col.header}: {r.get(col.key) or '–'}  ·  the first / last day this "
+                f"{'group' if r.get('members') else 'ad'} spent, over the days fetched")
     elif col is not None and col.kind == "count":
         line = f"Ads: {r.get('n', 1):,} in this row"
     return f"{head}\n{line}"

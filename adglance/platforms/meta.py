@@ -32,7 +32,7 @@ ACTIONS = {"likes": "post_reaction", "comments": "comment", "shares": "post", "f
 # either cannot be picked for a Meta account (H shows it greyed)
 PROVIDES = {"spend", "billed", "impressions", "clicks", "watch_time", *VIDEO, *ACTIONS}
 # what a Meta account starts with: clicks and completes, not 6-second views
-SHOW = ["billed", "share", "impressions", "cpm", "ctr", "cpc", "cpv", "complete"]
+SHOW = ["billed", "share", "impressions", "cpm", "ctr", "cpc", "cpv", "complete", "first", "last"]
 CARDS = ["billed", "cpm", "ctr", "cpc"]            # the summary on top
 # what Meta calls a count, where adglance's own word would mislead
 NAMES = {"clicks": "Link clicks"}

@@ -497,7 +497,8 @@ class CardsPane(Pane):
     def reload(self, keep=None):
         lay = self.app.layout
         self.cards = [c.key for c in lay.cards]
-        rest = [c for c in lay.catalog if c.key not in self.cards and c.kind != "share" and lay.available(c)]
+        rest = [c for c in lay.catalog if c.key not in self.cards and c.kind not in ("share", "day")
+                and lay.available(c)]
         box = self.query_one("#cardlist", SelectionList)
         box.clear_options()
         by_key = {c.key: c for c in lay.catalog}
@@ -919,6 +920,10 @@ class AdView(App):
 
     def on_resize(self, event):
         self._arrange(event.size.width)
+        if self.span:                                 # the columns fill the new width
+            if self.typing:
+                self.typing.stop()
+            self.typing = self.set_timer(0.15, self._redraw)
 
     def _arrange(self, width):
         """The period line for this width: one line if it fits; else the buttons
@@ -1376,6 +1381,45 @@ class AdView(App):
             self._load(" ".join(self.words), refetch="all")
 
     # ---- filter, group, sort -----------------------------------------------------
+    def _spare(self, cols, widths):
+        """The table's width left over by these columns (each draws its width,
+        or its header's, plus a cell either side), less the scrollbar."""
+        table = self.query_one(DataTable)
+        used = sum(self._width(c, self._header(c), widths) + 2 for c in cols)
+        return table.size.width - used - 2
+
+    def _room(self, cols, widths):
+        """{name column: characters}: on a wide screen, what each name cut
+        short may show -- its longest value -- for as far as the room goes."""
+        spare = self._spare(cols, widths)
+        if spare <= 0:
+            return {}
+        room = {}
+        for c in cols:
+            if c.kind != "name":
+                continue
+            name = c.key[2:]
+            longest = max((len(str(r["names"].get(name) or "")) for r in self.recs[1:]), default=0)
+            cut = widths.get(c.key, 0)
+            if longest > cut - 1 and spare > 0:      # cut short (it ends in …)
+                give = min(longest - cut + 2, spare)
+                room[name] = cut + give
+                spare -= give
+        return room
+
+    def _spread(self, cols, widths):
+        """What is still left of a wide screen, shared out across the columns,
+        so the table reaches its right edge instead of stopping short."""
+        spare = self._spare(cols, widths)
+        if spare <= 0 or not cols:
+            return
+        grow = [c for c in cols if c.kind != "share"]  # the Share bar keeps its fixed width
+        if not grow:
+            return
+        each, extra = divmod(spare, len(grow))
+        for i, c in enumerate(grow):
+            widths[c.key] = self._width(c, self._header(c), widths) + each + (1 if i < extra else 0)
+
     def _columns(self, cols, every=None, widths=None):
         """(Re)build the columns for what is shown now -- a textual column only
         ever grows, so one long name would otherwise keep it wide for good.
@@ -1391,29 +1435,33 @@ class AdView(App):
         # dies (KeyError: None) when there is none -- set again once rows are in
         table.fixed_rows = 0
         table.clear(columns=True)
-        limits = self.layout.limits
-        currency = self.source.get("currency", "")
         self.shown_cols = every                       # every column, hidden by a scroll or not
         for col in cols:
-            label = header_label(col, limits, currency)
-            # its number key, small, in front: ¹Geo ²Type ... ⁰ is the tenth
-            if col.key[2:] in self.pins and col.kind == "name":
-                label = f"{icon('pin') or '▪ '}{label}"      # pinned: stays on a sideways scroll
-            # the sorted columns wear an arrow -- the 2nd, 3rd ... its place too
-            order = self._sort_order()
-            if col.key in order:
-                place, rev = order[col.key]
-                label = f"{label} {'↓' if rev else '↑'}{SUPERSCRIPT[place % 10] if place > 1 else ''}"
-            else:
-                label = f"{label}  "
-            label = Text(label, justify="left" if col.kind == "name" else "right")
-            if col.kind == "share":
-                table.add_column(label, key=col.key, width=SHARE_WIDTH + 1)
-                continue
-            width = max(label.cell_len, (widths or {}).get(col.key, 0))
-            if col.key == f"n:{STATUS}":                  # room for any status before it arrives
-                width = max(width, STATUS_WIDTH)
-            table.add_column(label, key=col.key, width=width)
+            label = self._header(col)
+            table.add_column(label, key=col.key, width=self._width(col, label, widths))
+
+    def _header(self, col):
+        """A column's header: its name (and currency, target), a pin when
+        pinned, an arrow when sorted -- the 2nd, 3rd ... its place too."""
+        label = header_label(col, self.layout.limits, self.source.get("currency", ""))
+        if col.key[2:] in self.pins and col.kind == "name":
+            label = f"{icon('pin') or '▪ '}{label}"          # pinned: stays on a sideways scroll
+        order = self._sort_order()
+        if col.key in order:
+            place, rev = order[col.key]
+            label = f"{label} {'↓' if rev else '↑'}{SUPERSCRIPT[place % 10] if place > 1 else ''}"
+        else:
+            label = f"{label}  "
+        return Text(label, justify="left" if col.kind == "name" else "right")
+
+    def _width(self, col, label, widths):
+        """The width a column is drawn at: its widest cell or its header."""
+        if col.kind == "share":
+            return SHARE_WIDTH + 1
+        width = max(label.cell_len, (widths or {}).get(col.key, 0))
+        if col.key == f"n:{STATUS}":                      # room for any status before it arrives
+            width = max(width, STATUS_WIDTH)
+        return width
 
     def _shown(self):
         """(columns, records sorted, their total, how many rows they hold)"""
@@ -1458,6 +1506,11 @@ class AdView(App):
         self.recs = [total] + list(recs) if recs else []
         rows = [cells(cols, r, self.layout) for r in self.recs]
         widths = {c.key: max((row[i].cell_len for row in rows), default=0) for i, c in enumerate(cols)}
+        room = self._room(cols, widths)
+        if room:                                      # a wide screen: names cut short get it first
+            rows = [cells(cols, r, self.layout, room) for r in self.recs]
+            widths = {c.key: max((row[i].cell_len for row in rows), default=0) for i, c in enumerate(cols)}
+        self._spread(cols, widths)
         self._columns(cols, every, widths)
         for row_cells in rows:
             table.add_row(*row_cells)
@@ -1967,6 +2020,8 @@ class AdView(App):
         """A metric on everything shown now, as the table writes it."""
         if not self.recs or col.kind == "share":
             return ""
+        if col.kind == "day":
+            return self.recs[0].get(col.key) or ""
         v = derive(dict(self.recs[0]), [col]).get(col.key)
         if v is None:
             return ""

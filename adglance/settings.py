@@ -38,6 +38,9 @@ METRICS = {
     "share":       {"name": "Share",                                               "format": "share"},
     "impressions": {"name": "Impr",      "formula": "impressions",                 "format": "number"},
     "views":       {"name": "Views",     "formula": "views",                       "format": "number"},
+    # an ad's run: its first and last day with spend (of the days fetched)
+    "first":       {"name": "First spend", "format": "day"},
+    "last":        {"name": "Last spend",  "format": "day"},
     # the counts themselves, to show as they are (each platform names clicks its own way)
     "spend":       {"name": "Spend",     "formula": "spend",                       "format": "money"},
     "clicks":      {"name": "Clicks",    "formula": "clicks",                      "format": "number"},
@@ -144,6 +147,7 @@ OPTIONS = [
      "          views_100  watch_time (seconds)  likes  comments  shares  follows\n"
      "          profile_visits  engagements\n"
      "  format  money  cost (one decimal)  pct  number  share (part of the spend)\n"
+     "          day (first / last: an ad's first and last day with spend)\n"
      "  better  lower or higher: which way a change is good, for the cards' colour\n"
      "+ - * / and brackets only. A total or a group sums the counts first, then\n"
      "applies the formula, so its rate is the real one. A count a platform does\n"
