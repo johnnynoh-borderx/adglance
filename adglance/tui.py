@@ -62,7 +62,7 @@ from . import settings
 from .actions import ActionScreen
 from .datepicker import CalendarScreen
 from .store import days, freshness, set_zone, today as account_today
-from .style import (ALL, CHEVRONS, PARTS, RAW, SYMBOL, compile_formula, evaluate, number, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
+from .style import (ALL, CHEVRONS, CONTENT_WIDTH, NAME_WIDTH, PARTS, RAW, SYMBOL, compile_formula, evaluate, number, DATE, GLYPHS, MAUVE, LOADING, SPIN, STATUS, SHARE_WIDTH, cells, combine, derive, detail, group, grouping, icon, chevron,
                           header_label, matches, ordered, prepare, with_share)
 
 COMMON = ["today", "yesterday", "mtd", "lm", "7d", "14d", "30d"]
@@ -1448,7 +1448,35 @@ class AdView(App):
         width = table.size.width or self.size.width
         return width - used - 2
 
-    def _room(self, cols, widths):
+    def _limits(self, cols):
+        """{name column: characters it shows before ending in …} as usual: a
+        long name would otherwise widen its column for good."""
+        from_ad = self.layout.from_ad
+        return {c.key[2:]: (CONTENT_WIDTH if c.key[2:] in from_ad or c.key[2:] in RAW else NAME_WIDTH)
+                for c in cols if c.kind == "name"}
+
+    def _cut(self, cols, rows, limits, measure=False):
+        """Each name cell cut to its column's limit (… at the end), and every
+        column's width. measure: only work the widths out, cut nothing."""
+        widths = {}
+        for i, c in enumerate(cols):
+            name = c.key[2:] if c.kind == "name" else None
+            width = 0
+            for r, row in zip(self.recs, rows):
+                cell = row[i]
+                if name and not r.get("total"):
+                    v = str(r["names"].get(name) or "")
+                    over = len(v) - limits.get(name, len(v))
+                    if over > 0:                      # the value is cut; what is around it stays
+                        if measure:
+                            width = max(width, cell.cell_len - over)
+                            continue
+                        cell.truncate(cell.cell_len - over, overflow="ellipsis")
+                width = max(width, cell.cell_len)
+            widths[c.key] = width
+        return widths
+
+    def _room(self, cols, widths, limits):
         """{name column: characters}: on a wide screen, what each name cut
         short may show -- its longest value -- for as far as the room goes."""
         spare = self._spare(cols, widths)
@@ -1460,10 +1488,9 @@ class AdView(App):
                 continue
             name = c.key[2:]
             longest = max((len(str(r["names"].get(name) or "")) for r in self.recs[1:]), default=0)
-            cut = widths.get(c.key, 0)
-            if longest > cut - 1 and spare > 0:      # cut short (it ends in …)
-                give = min(longest - cut + 2, spare)
-                room[name] = cut + give
+            if longest > limits.get(name, longest) and spare > 0:     # cut short (it ends in …)
+                give = min(longest - limits[name], spare)
+                room[name] = limits[name] + give
                 spare -= give
         return room
 
@@ -1564,12 +1591,13 @@ class AdView(App):
         # the total of exactly what is shown -- it follows the filter -- first,
         # held in place on top so it stays in view however far you scroll
         self.recs = [total] + list(recs) if recs else []
-        rows = [cells(cols, r, self.layout) for r in self.recs]
-        widths = {c.key: max((row[i].cell_len for row in rows), default=0) for i, c in enumerate(cols)}
-        room = self._room(cols, widths)
-        if room:                                      # a wide screen: names cut short get it first
-            rows = [cells(cols, r, self.layout, room) for r in self.recs]
-            widths = {c.key: max((row[i].cell_len for row in rows), default=0) for i, c in enumerate(cols)}
+        # built once, names in full; then cut where the screen has no room for them
+        uncut = {c.key[2:]: 10 ** 6 for c in cols if c.kind == "name"}
+        rows = [cells(cols, r, self.layout, uncut) for r in self.recs]
+        limits = self._limits(cols)
+        widths = self._cut(cols, rows, limits, measure=True)
+        limits.update(self._room(cols, widths, limits))  # a wide screen: names cut short get it first
+        widths = self._cut(cols, rows, limits)
         self._spread(cols, widths)
         self._columns(cols, every, widths)
         for row_cells in rows:
