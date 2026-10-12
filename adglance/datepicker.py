@@ -153,7 +153,8 @@ class CalendarScreen(ModalScreen):
     CalendarScreen > Vertical {{ width: {WIDTH + 6}; height: auto; padding: 1 2;
                                  background: #181825; border: round {MAUVE}; }}
     """
-    BINDINGS = [("escape", "dismiss_none", "Close")]
+    BINDINGS = [("escape", "dismiss_none", "Close"),
+                ("c", "dismiss_none", "Close")]           # c again closes it, as ? does the keys
 
     def __init__(self, dates=None, anchor=(0, 0)):
         super().__init__()

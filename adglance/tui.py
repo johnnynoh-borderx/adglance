@@ -114,8 +114,9 @@ KEYS = [
               ("shift + ← →", "move the cursor's column (names among names, metrics among metrics)"),
               ("f", "pinned columns off and on")]),
     ("Options: one window, saved to this account's file", [
-              ("H  S  G  F", "open it on Columns  /  Sort  /  Group  /  Pins (Cards: [ ])"),
-              ("", "Columns: sets, search, space tick, shift+↑↓ move, n new metric, r reset")]),
+              ("H  S  G  F", "open it on Columns / Sort / Group / Pins (Cards: [ ]); again: close"),
+              ("", "Columns, Cards: tick on the left; order on the right (shift+↑↓, x out)"),
+              ("", "esc: clears a search first, then closes  ·  ↓ from a search: its list")]),
     ("Data", [("r  /  R", "refresh the last 30 days  /  every day of this period"),
               ("a  /  A", "the next ad account  /  the list (its last row adds one)"),
               (",", "this account's own options in $EDITOR (over the defaults)"),
@@ -535,13 +536,22 @@ class PinsPane(TickPane):
 
 
 class CardsPane(Pane):
-    """The summary cards on top: tick the metrics, shift+↑↓ to order them."""
-    BINDINGS = [Binding("shift+up", "move(-1)", show=False), Binding("shift+down", "move(1)", show=False)]
+    """The summary cards on top, chosen as columns are: tick on the left (an
+    order that never moves), order on the right (shift+up/down, x out)."""
+    BINDINGS = [Binding("x", "remove", show=False),
+                Binding("shift+up", "move(-1)", show=False), Binding("shift+down", "move(1)", show=False)]
 
     def compose(self):
-        yield Static("The cards on top: each the total of what is shown and its change on the\n"
-                     "period before. space tick  ·  shift+↑↓ move", classes="hint")
-        yield SelectionList(id="cardlist")
+        yield Static("The cards on top: each the total of what is shown and its change on the period before.",
+                     classes="hint")
+        with Horizontal(id="two"):
+            with Vertical(id="left"):
+                yield Static("Every metric  ·  space ticks", classes="side")
+                yield SelectionList(id="cardlist")
+            with Vertical(id="right"):
+                yield Static("Cards, in order  ·  shift+↑↓ move  ·  x out", classes="side")
+                yield OptionList(id="cardorder")
+        yield Static("tab  left / right  ·  saved for this account as you go", classes="hint")
 
     def first(self):
         return self.query_one("#cardlist")
@@ -549,11 +559,14 @@ class CardsPane(Pane):
     def reload(self, keep=None):
         lay = self.app.layout
         self.cards = [c.key for c in lay.cards]
-        rest = [c for c in lay.catalog if c.key not in self.cards and c.kind != "share" and lay.available(c)]
+        eligible = [c for c in lay.catalog if c.kind != "share" and lay.available(c)]
+        if not hasattr(self, "left_order"):
+            self.left_order = [c.key for c in eligible]
+        by_key = {c.key: c for c in eligible}
         box = self.query_one("#cardlist", SelectionList)
+        at, top = box.highlighted, box.scroll_y
         box.clear_options()
-        by_key = {c.key: c for c in lay.catalog}
-        listed = [by_key[k] for k in self.cards] + rest
+        listed = [by_key[k] for k in self.left_order if k in by_key]
         lw = max((len(c.header) for c in listed), default=0) + 3
         fw = max((len(c.formula or "") for c in listed), default=0) + 3
         for c in listed:
@@ -563,31 +576,56 @@ class CardsPane(Pane):
             if now:
                 text.append(f"= {now}", style="#cdd6f4")
             box.add_option(Selection(text, c.key, c.key in self.cards))
-        for i in range(box.option_count):
-            if box.get_option_at_index(i).value == keep:
-                box.highlighted = i
+        if box.option_count:
+            box.highlighted = min(at or 0, box.option_count - 1)
+            box.scroll_to(y=top, animate=False)
+        self._fill_order(keep)
 
-    def _save(self, cards, keep):
+    def _fill_order(self, keep=None):
+        lay = self.app.layout
+        box = self.query_one("#cardorder", OptionList)
+        at = keep or (box.get_option_at_index(box.highlighted).id
+                      if box.highlighted is not None and box.option_count else None)
+        box.clear_options()
+        headers = {c.key: c.header for c in lay.catalog}
+        box.add_options([Option(Text(headers.get(k, k)), id=k) for k in self.cards])
+        if at in self.cards:
+            box.highlighted = self.cards.index(at)
+
+    def _save(self, cards, keep=None):
         self.app._write("cards", cards, rebuild=True)
-        self.reload(keep)
+        self.cards = [c.key for c in self.app.layout.cards]
+        self._fill_order(keep)
 
     def on_selection_list_selection_toggled(self, event):
         key = event.selection.value
-        cards = [k for k in self.cards if k != key] if key in self.cards else self.cards + [key]
-        self._save(cards, key)
+        self._save([k for k in self.cards if k != key] if key in self.cards else self.cards + [key], key)
+
+    def _picked(self):
+        box = self.query_one("#cardorder", OptionList)
+        if self.screen.focused is not box or box.highlighted is None:
+            return None
+        return box.get_option_at_index(box.highlighted).id
 
     def action_move(self, step):
-        box = self.query_one("#cardlist", SelectionList)
-        if box.highlighted is None:
-            return
-        key = box.get_option_at_index(box.highlighted).value
-        if key not in self.cards:
+        key = self._picked()
+        if key is None:
+            self.app.notify("the order is the right list's: tab there, then shift+↑↓", timeout=3)
             return
         i, cards = self.cards.index(key), list(self.cards)
         j = i + step
         if 0 <= j < len(cards):
             cards[i], cards[j] = cards[j], cards[i]
             self._save(cards, key)
+
+    def action_remove(self):
+        key = self._picked()
+        if key is None:
+            return
+        self._save([k for k in self.cards if k != key])
+        box = self.query_one("#cardlist", SelectionList)
+        with box.prevent(SelectionList.SelectionToggled):
+            box.deselect(key)
 
 
 class OptionsScreen(ModalScreen):
@@ -627,7 +665,7 @@ class OptionsScreen(ModalScreen):
     TABS = [("columns", "Columns", "H", ColumnsPane), ("sort", "Sort", "S", SortPane),
             ("group", "Group", "G", GroupPane), ("pins", "Pins", "F", PinsPane),
             ("cards", "Cards", "", CardsPane)]
-    BINDINGS = [("escape", "dismiss", "Close"),
+    BINDINGS = [Binding("escape", "back", "Close"),
                 Binding("H", "tab('columns')", show=False), Binding("S", "tab('sort')", show=False),
                 Binding("G", "tab('group')", show=False), Binding("F", "tab('pins')", show=False),
                 Binding("left_square_bracket", "step(-1)", show=False),
@@ -665,10 +703,22 @@ class OptionsScreen(ModalScreen):
         self._open(event.pane.id)
 
     def action_tab(self, tid):
+        if self.query_one(TabbedContent).active == tid:
+            self.dismiss()                            # its own key again closes it, as ? does the keys
+            return
         # let go of the focus first: textual brings back the tab holding the
         # focused widget, so a search box left focused would win the tab back
         self.set_focus(None)
         self.query_one(TabbedContent).active = tid
+
+    def action_back(self):
+        """esc: a search with words in it is cleared first, as the table's
+        filter is; then the window closes."""
+        box = self.focused
+        if isinstance(box, Input) and box.value:
+            box.value = ""
+            return
+        self.dismiss()
 
     def action_step(self, n):
         ids = [t[0] for t in self.TABS]
@@ -2263,6 +2313,12 @@ class AdView(App):
 
     def action_focus_filter(self):
         self.query_one("#filter", Input).focus()
+
+    def on_key(self, event):
+        """↓ from the filter goes to the table, as from any search box to its list."""
+        if event.key == "down" and isinstance(self.focused, Input) and self.focused.id == "filter":
+            self.query_one(DataTable).focus()
+            event.stop()
 
     def check_action(self, action, parameters):
         """esc's label says what it will do: clear the filter, or go back."""
