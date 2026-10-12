@@ -747,7 +747,9 @@ def cells(cols, r, layout, room=None):
             out.append(Text(f"{r.get('n', 1):,}", style=SUBTEXT, justify="right"))
         elif c.kind == "day":
             v = r.get(c.key)
-            out.append(Text(v or "–", style=(f"bold {WHITE}" if total else SUBTEXT) if v else OVERLAY))
+            # right, as its header and the number columns beside it
+            out.append(Text(v or "–", style=(f"bold {WHITE}" if total else SUBTEXT) if v else OVERLAY,
+                            justify="right"))
         elif c.kind == "share":
             v = r.get("share")
             out.append(Text("") if v is None else Text.assemble(
