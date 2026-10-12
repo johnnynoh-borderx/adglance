@@ -45,7 +45,7 @@ HIGHLIGHT = set()                    # values drawn yellow with a trophy (Winner
 PARTS = ["spend", "billed", "impressions", "clicks", "views", "views_2s", "views_6s",
          "views_25", "views_50", "views_75", "views_100", "watch_time", "likes",
          "comments", "shares", "follows", "profile_visits", "engagements"]
-FORMATS = ("money", "cost", "pct", "number", "share", "day")
+FORMATS = ("money", "cost", "pct", "number", "share")
 DEFAULT_SHOW = ["billed", "share", "cpm", "cpv", "cpv6", "cpf"]
 
 # key, header, kind, formula. kind: name, count, or one of FORMATS
@@ -56,6 +56,9 @@ STATUS = "status"                    # the ad's state now (Live, Off, ...), from
 # levels (1 campaigns, 2 ad groups, 3 ads) group by these
 RAW = {"campaign_name": "Campaign", "adgroup_name": "Ad group", "ad_name": "Ad"}
 SOURCES = {"campaign": "campaign_name", "adgroup": "adgroup_name", "ad": "ad_name"}
+# an ad's run, as name columns (dimensions, not counts): its first and last day
+# with spend over every day kept; a group shows its earliest and its latest
+RUN = {"first_spend": "First spend date", "last_spend": "Last spend date"}
 DATE = "date"                        # the day column Daily adds (shown as Date)
 ALL = "*"                            # the group that holds everything
 
@@ -154,7 +157,7 @@ class Layout:
         self.months = set(spec.get("months") or [])
         self.spaced = set(spec.get("spaced") or [])
         # status comes from the platform, the raw names from the report, not a pattern
-        known = captured | set(self.make) | {STATUS} | set(RAW)
+        known = captured | set(self.make) | {STATUS} | set(RAW) | set(RUN)
         wanted = spec.get("columns") or sorted(known)
         self.names = []
         for c in wanted:
@@ -171,7 +174,8 @@ class Layout:
         self.names += sorted(c for c in known - set(self.names) - parts - self.months)
         # the short header each column shows under; its name stays the mart's
         raw = dict(RAW, adgroup_name="Ad set" if platform == "meta" else "Ad group")
-        self.labels = {DATE: "Date", **{c: c for c in self.names}, **raw, **(spec.get("labels") or {})}
+        self.labels = {DATE: "Date", **{c: c for c in self.names}, **raw, **RUN,
+                       **(spec.get("labels") or {})}
         # the name columns shown, in order: the settings' columns (which the
         # screen writes) over what the names give
         chosen = cfg.get("columns")
@@ -235,9 +239,7 @@ class Layout:
             try:
                 if kind not in FORMATS:
                     raise ValueError(f"format {kind!r} -- use one of {', '.join(FORMATS)}")
-                if kind == "day" and mid not in ("first", "last"):
-                    raise ValueError("format day is first and last's alone")
-                if kind not in ("share", "day"):
+                if kind != "share":
                     if not formula:
                         raise ValueError("no formula")
                     compile_formula(formula)
@@ -277,7 +279,7 @@ class Layout:
         for mid in cards if isinstance(cards, list) else []:
             if mid not in by_key:
                 self.problems.append(f"cards: {mid!r} is not a metric")
-            elif by_key[mid].kind not in ("share", "day") and self.available(by_key[mid]):
+            elif by_key[mid].kind != "share" and self.available(by_key[mid]):
                 self.cards.append(by_key[mid])
         # what is drawn: these keys (n:name for a name column, the id for a
         # metric); the screen replaces it with what h / H picked
@@ -485,8 +487,10 @@ def prepare(raw, layout, statuses=None):
         if r.get("day"):                     # a Daily row: its day is a column like any name
             names = {DATE: r["day"], **names}
         gate = layout.target(names)
+        for col in RUN:                      # the ad's run, from the store
+            if col in names:
+                names[col] = r.get("first" if col == "first_spend" else "last") or ""
         rec = {p: r.get(p) or 0.0 for p in PARTS}
-        rec["first"], rec["last"] = r.get("first"), r.get("last")      # the ad's run
         rec.update(names=names, campaign_name=campaign, adgroup_name=r.get("adgroup_name", ""), ad_name=ad,
                    judged=gate[0] if gate else None, limit=gate[1] if gate else None,
                    ids=frozenset([r.get("ad_id") or ad]), n=1, raw_status=raw_status)
@@ -530,12 +534,13 @@ def combine(recs, label=None):
     one yardstick."""
     rec = {p: sum(r[p] for r in recs) for p in PARTS}
     # a group's run: its earliest first day and its latest last day
-    rec["first"] = min((r["first"] for r in recs if r.get("first")), default=None)
-    rec["last"] = max((r["last"] for r in recs if r.get("last")), default=None)
     names, mixed = {}, set()
     for col in (recs[0]["names"] if recs else {}):
         values = {r["names"].get(col) for r in recs}
-        if len(values) == 1:
+        if col in RUN:                   # a group's run: its earliest first, its latest last
+            days = [v for v in values if v]
+            names[col] = (min(days) if col == "first_spend" else max(days)) if days else ""
+        elif len(values) == 1:
             names[col] = values.pop()
         else:
             names[col] = ""
@@ -602,7 +607,7 @@ def value(r, key):
 def ordered(recs, key, reverse):
     """Sorted by one column. Names A-Z with blanks last; numbers with a missing
     value (no 6s views, no follows) last either way."""
-    if key.startswith("n:") or key in ("first", "last"):     # text, and days as text: ISO sorts
+    if key.startswith("n:"):                     # text, and days as text: ISO sorts
         return sorted(recs, key=lambda r: ((value(r, key) or "") == "", (value(r, key) or "").lower()),
                       reverse=reverse)
     sign = -1 if reverse else 1
@@ -745,11 +750,6 @@ def cells(cols, r, layout, room=None):
                 out.append(cell)
         elif c.kind == "count":
             out.append(Text(f"{r.get('n', 1):,}", style=SUBTEXT, justify="right"))
-        elif c.kind == "day":
-            v = r.get(c.key)
-            # right, as its header and the number columns beside it
-            out.append(Text(v or "–", style=(f"bold {WHITE}" if total else SUBTEXT) if v else OVERLAY,
-                            justify="right"))
         elif c.kind == "share":
             v = r.get("share")
             out.append(Text("") if v is None else Text.assemble(
@@ -812,9 +812,6 @@ def detail(r, currency="", col=None, labels=None):
     elif col is not None and col.kind == "name":
         key = col.key[2:]
         line = f"{labels.get(key, key)}: {r['names'].get(key) or '–'}"
-    elif col is not None and col.kind == "day":
-        line = (f"{col.header}: {r.get(col.key) or '–'}  ·  the first / last day this "
-                f"{'group' if r.get('members') else 'ad'} spent, over the days fetched")
     elif col is not None and col.kind == "count":
         line = f"Ads: {r.get('n', 1):,} in this row"
     return f"{head}\n{line}"

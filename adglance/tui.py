@@ -497,8 +497,7 @@ class CardsPane(Pane):
     def reload(self, keep=None):
         lay = self.app.layout
         self.cards = [c.key for c in lay.cards]
-        rest = [c for c in lay.catalog if c.key not in self.cards and c.kind not in ("share", "day")
-                and lay.available(c)]
+        rest = [c for c in lay.catalog if c.key not in self.cards and c.kind != "share" and lay.available(c)]
         box = self.query_one("#cardlist", SelectionList)
         box.clear_options()
         by_key = {c.key: c for c in lay.catalog}
@@ -1386,7 +1385,10 @@ class AdView(App):
         or its header's, plus a cell either side), less the scrollbar."""
         table = self.query_one(DataTable)
         used = sum(self._width(c, self._header(c), widths) + 2 for c in cols)
-        return table.size.width - used - 2
+        # before its first layout the table has no width: the screen's, which it
+        # spans, so the first draw already fills it instead of widening a beat later
+        width = table.size.width or self.size.width
+        return width - used - 2
 
     def _room(self, cols, widths):
         """{name column: characters}: on a wide screen, what each name cut
@@ -2020,8 +2022,6 @@ class AdView(App):
         """A metric on everything shown now, as the table writes it."""
         if not self.recs or col.kind == "share":
             return ""
-        if col.kind == "day":
-            return self.recs[0].get(col.key) or ""
         v = derive(dict(self.recs[0]), [col]).get(col.key)
         if v is None:
             return ""

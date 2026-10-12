@@ -38,9 +38,6 @@ METRICS = {
     "share":       {"name": "Share",                                               "format": "share"},
     "impressions": {"name": "Impr",      "formula": "impressions",                 "format": "number"},
     "views":       {"name": "Views",     "formula": "views",                       "format": "number"},
-    # an ad's run: its first and last day with spend (of the days fetched)
-    "first":       {"name": "First spend", "format": "day"},
-    "last":        {"name": "Last spend",  "format": "day"},
     # the counts themselves, to show as they are (each platform names clicks its own way)
     "spend":       {"name": "Spend",     "formula": "spend",                       "format": "money"},
     "clicks":      {"name": "Clicks",    "formula": "clicks",                      "format": "number"},
@@ -119,7 +116,8 @@ OPTIONS = [
     ("names", {},
      "How names become columns. Out of the box each name is one column, as it is:\n"
      "Campaign, Ad group (Ad set on Meta), Ad -- always there to show (H) and what\n"
-     "the levels group by (1 campaigns, 2 ad groups, 3 ads).\n"
+     "the levels group by (1 campaigns, 2 ad groups, 3 ads). So are First / Last\n"
+     "spend date: an ad's first and last day with spend, over the days fetched.\n"
      "Most people need nothing more. If your names are built from pieces\n"
      "(BRAND_US_VV_Launch), split them:\n"
      "  split     the separator, e.g. \"_\"\n"
@@ -147,7 +145,6 @@ OPTIONS = [
      "          views_100  watch_time (seconds)  likes  comments  shares  follows\n"
      "          profile_visits  engagements\n"
      "  format  money  cost (one decimal)  pct  number  share (part of the spend)\n"
-     "          day (first / last: an ad's first and last day with spend)\n"
      "  better  lower or higher: which way a change is good, for the cards' colour\n"
      "+ - * / and brackets only. A total or a group sums the counts first, then\n"
      "applies the formula, so its rate is the real one. A count a platform does\n"
@@ -277,7 +274,8 @@ def names_spec(names, problems):
         months = set(names.get("months") or [])
         # nothing split: the names as they are; else what the settings cut from them
         cut = [c for c in dict.fromkeys([*captured, *make]) if c not in parts and c not in months]
-        spec["columns"] = (cut or ["campaign_name", "adgroup_name", "ad_name"]) + ["status"]
+        spec["columns"] = (cut or ["campaign_name", "adgroup_name", "ad_name"]) + [
+            "status", "first_spend", "last_spend"]
     return spec
 
 
