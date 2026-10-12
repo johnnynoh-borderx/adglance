@@ -210,65 +210,78 @@ class Pane(Vertical):
 
 
 class ColumnsPane(Pane):
-    """Every column, ticked when shown and in the table's order: shown names,
-    hidden names, then shown numbers, hidden numbers. Pick a set, tick, move."""
+    """Two lists, as Ads Manager's own column chooser: on the left every column,
+    in an order that never moves, to tick; on the right the ones shown, in the
+    table's order, to arrange. Ticking adds to the end of the right; shift+up
+    and down move there, x takes one out. Sets on top, a search on the left."""
     BINDINGS = [Binding("r", "reset", show=False), Binding("n", "new", show=False),
-                Binding("slash", "search", show=False),
+                Binding("slash", "search", show=False), Binding("x", "remove", show=False),
                 Binding("shift+up", "move(-1)", show=False), Binding("shift+down", "move(1)", show=False)]
 
     def compose(self):
         yield Horizontal(id="presets")
-        yield Input(placeholder="/ search columns…  (cpv, click, complete…)", id="q")
-        yield SelectionList(id="cols")
-        yield Static("/ search  ·  space tick  ·  shift+↑↓ move  ·  n new metric  ·  r reset\n"
-                     "names first, then numbers  ·  saved for this account as you go", classes="hint")
+        with Horizontal(id="two"):
+            with Vertical(id="left"):
+                yield Static("Every column  ·  space ticks", classes="side")
+                yield Input(placeholder="/ search…  (cpv, click, complete)", id="q")
+                yield SelectionList(id="cols")
+            with Vertical(id="right"):
+                yield Static("Shown, in order  ·  shift+↑↓ move  ·  x out", classes="side")
+                yield OptionList(id="order")
+        yield Static("tab  left / right  ·  n new metric  ·  r reset  ·  saved for this account as you go",
+                     classes="hint")
 
     def first(self):
-        # the list, not the search: letters stay keys (G, S ... switch tabs); / searches
         return self.query_one("#cols")
 
     def action_search(self):
         self.query_one("#q").focus()
 
     def reload(self, keep=None):
-        app = self.app
-        lay = app.layout
+        """Both lists from the app now. The left keeps the order it opened with
+        for as long as the window is open, so a tick never moves a row."""
+        app, lay = self.app, self.app.layout
         self.presets = lay.presets
         box = self.query_one("#presets", Horizontal)
         if len(box.children) != len(self.presets):
             box.remove_children()
             box.mount_all([Button(name, id=f"preset-{i}", compact=True, classes="preset")
                            for i, name in enumerate(self.presets)])
-        names = [c for c in lay.names]
-        shown_names = [c for c in names if f"n:{c}" in lay.visible]
-        metrics = list(lay.catalog)
-        shown_metrics = [c for c in metrics if c.key in lay.visible]
+        if not hasattr(self, "left_order"):
+            self.left_order = ([f"n:{c}" for c in lay.names]
+                               + [c.key for c in lay.catalog if lay.available(c)]
+                               + [c.key for c in lay.catalog if not lay.available(c)])
+        known = {f"n:{c}" for c in lay.names} | {c.key for c in lay.catalog}
+        self.left_order = [k for k in self.left_order if k in known] + sorted(known - set(self.left_order))
+        by_key = {c.key: c for c in lay.catalog}
         # (key, label, what it is, its value now, why it cannot be picked, available)
-        rows = []
-        for c in shown_names + [c for c in names if c not in shown_names]:
-            rows.append((f"n:{c}", lay.label(c), app.example(c) or "name", "", "", True))
-        for c in shown_metrics + [c for c in metrics if c not in shown_metrics and lay.available(c)] \
-                + [c for c in metrics if not lay.available(c)]:
-            ok = lay.available(c)
-            now = app.example_value(c) if ok else ""
-            rows.append((c.key, c.header, c.formula or "part of the spend shown",
-                         f"= {now}" if now else "", "" if ok else f"not on {lay.platform_title}", ok))
-        self.rows = rows
-        self.shown = set(lay.visible)
-        self.order = [c.key for c in shown_metrics]
-        self._fill(keep)
-        self._light()
-        box = self.query_one("#cols", SelectionList)
-        if box.highlighted is None and box.option_count:
-            box.highlighted = 0
+        self.rows = []
+        for key in self.left_order:
+            if key.startswith("n:"):
+                self.rows.append((key, lay.label(key[2:]), app.example(key[2:]) or "name", "", "", True))
+            else:
+                c = by_key[key]
+                ok = lay.available(c)
+                now = app.example_value(c) if ok else ""
+                self.rows.append((key, c.header, c.formula or "part of the spend shown",
+                                  f"= {now}" if now else "", "" if ok else f"not on {lay.platform_title}", ok))
+        self._sync()
+        self._fill()
+        self._fill_order(keep)
 
-    def _fill(self, keep=None):
+    def _sync(self):
+        lay = self.app.layout
+        self.shown = set(lay.visible)
+        self.order = [c.key for c in lay.catalog if c.key in lay.visible]
+        self._light()
+
+    def _fill(self):
+        """The left: every column, filtered by the search, ticks as they are."""
         box = self.query_one("#cols", SelectionList)
-        at = keep or (box.get_option_at_index(box.highlighted).value
-                      if box.highlighted is not None and box.option_count else None)
+        at = box.highlighted
+        top = box.scroll_y
         words = self.query_one("#q", Input).value.lower().split()
         box.clear_options()
-        # every label in one column, every "= value" in the next: widths from the longest
         lw = max((len(r[1]) for r in self.rows), default=0) + 3
         fw = max((len(r[2]) for r in self.rows if r[3]), default=0) + 3
         for key, label, what, value, why, available in self.rows:
@@ -283,11 +296,31 @@ class ColumnsPane(Pane):
             if why:
                 text.append(f"   {why}", style="#9399b2 italic")
             box.add_option(Selection(text, key, key in self.shown, disabled=not available))
-        if at is not None:
-            for i in range(box.option_count):
-                if box.get_option_at_index(i).value == at:
-                    box.highlighted = i
-                    break
+        if box.option_count:
+            box.highlighted = min(at or 0, box.option_count - 1)
+            box.scroll_to(y=top, animate=False)
+
+    def _fill_order(self, keep=None):
+        """The right: what is shown, names then numbers, in the table's order."""
+        lay = self.app.layout
+        box = self.query_one("#order", OptionList)
+        at = keep or (box.get_option_at_index(box.highlighted).id
+                      if box.highlighted is not None and box.option_count else None)
+        top = box.scroll_y
+        box.clear_options()
+        names = [f"n:{c}" for c in lay.names if f"n:{c}" in lay.visible]
+        numbers = [c.key for c in lay.catalog if c.key in lay.visible]
+        labels = {**{f"n:{c}": lay.label(c) for c in lay.names}, **{c.key: c.header for c in lay.catalog}}
+        items = [Option(Text(labels[k]), id=k) for k in names]
+        if names and numbers:
+            items.append(None)                        # names stay left of numbers in the table
+        items += [Option(Text(labels[k]), id=k) for k in numbers]
+        box.add_options(items)
+        ids = names + numbers
+        if at in ids:
+            box.highlighted = next(i for i in range(box.option_count)
+                                   if box.get_option_at_index(i).id == at)
+        box.scroll_to(y=top, animate=False)
 
     def _light(self):
         """The set the number columns are now, lit -- whatever their order."""
@@ -319,8 +352,19 @@ class ColumnsPane(Pane):
         bid = event.button.id or ""
         if bid.startswith("preset-"):
             self.app._write_show(list(self.presets.values())[int(bid.removeprefix("preset-"))])
-            self.reload()
+            self._after()
             event.stop()
+
+    def _after(self, keep=None):
+        """After a change: ticks, the right list and the lit set -- the left's rows stay put."""
+        self._sync()
+        box = self.query_one("#cols", SelectionList)
+        for i in range(box.option_count):
+            value = box.get_option_at_index(i).value
+            if (value in self.shown) != (value in box.selected):
+                with box.prevent(SelectionList.SelectionToggled):
+                    box.toggle(value)
+        self._fill_order(keep)
 
     def on_selection_list_selection_toggled(self, event):
         key = event.selection.value
@@ -329,31 +373,39 @@ class ColumnsPane(Pane):
             self.query_one("#cols", SelectionList).select(key)
             return
         self.app._set_visible(shown)
-        self.reload(keep=key)
+        self._after(key)
 
-    def _key(self):
-        box = self.query_one("#cols", SelectionList)
-        return box.get_option_at_index(box.highlighted).value if box.highlighted is not None else None
+    def _picked(self):
+        """The column the right list's cursor is on."""
+        box = self.query_one("#order", OptionList)
+        if self.screen.focused is not box or box.highlighted is None:
+            return None
+        return box.get_option_at_index(box.highlighted).id
 
     def action_move(self, step):
-        key = self._key()
+        key = self._picked()
         if key is None:
-            return
-        if self.query_one("#q", Input).value.strip():
-            self.app.notify("clear the search to move columns: their order is the whole list's", timeout=3)
-            return
-        if key not in self.shown:
-            self.app.notify("tick it first: only shown columns have a place", timeout=2)
+            self.app.notify("the order is the right list's: tab there, then shift+↑↓", timeout=3)
             return
         if self.app.move_column(key, step):
-            self.reload(keep=key)
+            self._after(key)
+
+    def action_remove(self):
+        key = self._picked()
+        if key is None or len(self.shown) <= 1:
+            return
+        self.app._set_visible(set(self.shown) - {key})
+        self._after()
 
     def action_reset(self):
         self.app._reset_view()
-        self.reload()
+        self._after()
 
     def action_new(self):
-        self.app._new_metric(after=self.reload)
+        def done():
+            del self.left_order                       # a new metric joins the left list
+            self.reload()
+        self.app._new_metric(after=done)
 
 
 class SortPane(Pane):
@@ -544,7 +596,7 @@ class OptionsScreen(ModalScreen):
     change applies at once and is written to the account's own file."""
     DEFAULT_CSS = """
     OptionsScreen { align: center middle; background: #11111b 40%; }
-    OptionsScreen > Vertical { width: 90; max-width: 96%; height: 86%; padding: 1 2;
+    OptionsScreen > Vertical { width: 110; max-width: 96%; height: 86%; padding: 1 2;
                                background: #181825; border: round #cba6f7; }
     OptionsScreen .o-title { color: #cba6f7; text-style: bold; margin: 0 0 1 0; }
     OptionsScreen TabbedContent { height: 1fr; }
@@ -558,6 +610,12 @@ class OptionsScreen(ModalScreen):
     OptionsScreen OptionList:focus > .option-list--option-highlighted { background: #313244; }
     OptionsScreen .hint { color: #7f849c; margin: 1 0 0 0; }
     OptionsScreen #q { margin: 0 0 1 0; }
+    OptionsScreen #two { height: 1fr; }
+    OptionsScreen #left { width: 3fr; height: 1fr; }
+    OptionsScreen #right { width: 1fr; min-width: 22; height: 1fr; margin: 0 0 0 2;
+                           border-left: tall #313244; padding: 0 0 0 1; }
+    OptionsScreen .side { color: #a6adc8; margin: 0 0 1 0; }
+    OptionsScreen #right OptionList { max-height: 100%; }
     OptionsScreen #now { color: #cdd6f4; margin: 0 0 1 0; }
     OptionsScreen #presets { height: 1; margin: 0 0 1 0; }
     OptionsScreen .preset { width: auto; min-width: 0; padding: 0 1; margin: 0 1 0 0;
